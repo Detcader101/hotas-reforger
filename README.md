@@ -3,8 +3,8 @@
 Bind **every** control on a Thrustmaster T.Flight Hotas 4 in Arma Reforger.
 
 Reforger generates its own joystick preset the first time it sees the stick.
-That preset works, and it leaves your trigger, your side thumb button and both
-halves of the throttle rocker doing nothing at all. This writes a config where
+That preset works, and it leaves your trigger, your side face button and both
+ends of the throttle rocker doing nothing at all. This writes a config where
 every button, the hat and all four live axes have a job — or says, in as many
 words, which ones you chose to leave alone.
 
@@ -69,7 +69,8 @@ COMPLETE -- 17 of 17 controls have a job (0 deliberately free).
 | `-Watch` | Live reader: move something, see the token Reforger would use. |
 | `-CheckLog` | Read Reforger's newest log; did the engine accept the bindings? |
 | `-Restore` | Put Reforger's own stock preset back. |
-| `-SelfTest` | 140 checks. No joystick needed, nothing written. |
+| `-SelfTest` | 160 checks. No joystick needed, nothing written. |
+| `-KeyTest` | Diagnostic: does this console give the tool your keystrokes? |
 
 Useful flags: `-ProfileName <name>`, `-DryRun` (print instead of write),
 `-Force` (skip confirmations), `-ConfigName <file>`.
@@ -81,35 +82,40 @@ Useful flags: `-ProfileName <name>`, `-DryRun` (print instead of write),
 | Name | What it is |
 |---|---|
 | `helicopter` *(default)* | Everything on the stick flies or shoots. No on-foot actions, so nothing here can fire your rifle while you are walking. |
-| `full` | As above, plus the trigger and reload work on foot too. |
-| `conservative` | Confirmed actions only — see *Provenance*. Costs you sights and engine start/stop, which become explicitly `Free`. |
+| `full` | As above, plus fire, reload and next-weapon work on foot too. |
+| `conservative` | Confirmed actions only — see *Provenance*. Costs you engine start and stop, which become explicitly `Free`. |
 
-The default layout, on a 12-button unit:
+The default layout. Indices are what one real unit reported; yours are read by
+`-Identify` and nothing here depends on them matching.
 
-| Control | Does |
-|---|---|
-| Stick roll | Cyclic roll · turret traverse |
-| Stick pitch | Cyclic pitch · turret elevation |
-| Throttle lever | Collective |
-| Stick twist / rudder rocker | Anti-torque · turret rotate |
-| Hat | Freelook, four directions |
-| **Trigger** | Turret fire |
-| **Side face button** | Freelook (hold) · recentre (single click) |
-| Stick top, left | Voice — push to talk (hold) · direct channel (click) |
-| Stick top, right | Map |
-| Stick raised button | Camera view |
-| **Rocker forward** | Next weapon |
-| **Rocker back** | Reload |
-| Throttle face, up | Autohover |
-| Throttle face, right | Select action |
-| Throttle face, down | Wheel brake |
-| Throttle face, left | Parking brake |
-| Throttle thumb | Sights / ADS |
-| Base buttons | Engine start · engine stop |
+| Control | Token | Does |
+|---|---|---|
+| Stick roll | `axis0` | Cyclic roll · turret traverse |
+| Stick pitch | `axis1` | Cyclic pitch · turret elevation |
+| Throttle lever | `axis2` | Collective |
+| Stick twist | `axis5` | Anti-torque · turret rotate |
+| Hat | `pov_*` | Freelook, four directions |
+| **Trigger** | `button0` | Turret fire |
+| Stick top, left | `button1` | Voice — push to talk (hold) · direct channel (click) |
+| Stick top, right | `button2` | Map |
+| **Side face button** | `button3` | Freelook (hold) · recentre (single click) |
+| Throttle face, left | `button4` | Select action |
+| Throttle face, down | `button5` | Wheel brake |
+| Throttle face, right | `button6` | Camera view (1st / 3rd person) |
+| Throttle face, up | `button7` | Autohover |
+| **Rocker, R2 end** | `button8` | Next weapon |
+| **Rocker, L2 end** | `button9` | Reload |
+| Base button, left | `button10` | Engine start |
+| Base button, right | `button11` | Engine stop |
 
 The four in bold are the ones Reforger's own preset leaves dead. Engine stop is
 on a recessed base button on purpose — an engine cut on something you can brush
 is an engine cut in the air.
+
+Two things that did not make the cut, because twelve buttons is twelve buttons:
+the **parking brake** (hold the wheel brake, or use the keyboard) and **sights /
+ADS**. Both are still available as jobs if you would rather have them — swap one
+in by editing the profile.
 
 To change a binding, edit `$script:Profiles` in `lib/Reforger.ps1`. Assign a
 job id, or the literal `'Free'` to leave a control alone deliberately. `'Free'`
@@ -161,9 +167,9 @@ error you would notice.
 **Drop bindings it does not recognise.** An action from a mod, or from a newer
 build, is copied through verbatim rather than deleted.
 
-**Double an input.** The Hotas 4's twist grip and rudder rocker are one
-physical axis and both drive anti-torque. An `InputSourceSum` adds its sources,
-so listing that token twice would ask for double rudder. Duplicates are merged.
+**Double an input.** An `InputSourceSum` ADDS its sources, so the same token
+listed twice on one action asks for double that input -- an axis that reaches
+full deflection at half travel. Duplicates are merged.
 
 **Guess your button numbers.** It has no built-in index table, because a
 plausible-but-wrong one is worse than none. `-Identify` measures.

@@ -28,60 +28,64 @@
 #          Hotas 4 presents itself as a DS4, so these are useful cross-checks,
 #          but they are NOT the winmm index and must not be used as one.
 
+# MEASURED, NOT GUESSED. An earlier version of this list was assembled from
+# product photographs and reviews, and got the unit wrong in three ways: it
+# invented a raised button on the grip and a thumb button on the throttle
+# handle that do not exist, and it described the throttle rocker as a
+# fore-and-aft paddle when it is a small two-way switch that Thrustmaster
+# labels L2 and R2. The list below is what a T.Flight Hotas 4 in PC mode
+# actually reports -- twelve buttons, one hat, four live axes -- confirmed by
+# an -Identify run against real hardware.
+
 $script:ControlCatalogue = @(
     # --- stick ---------------------------------------------------------------
-    @{ Id = 'StickTrigger';   Zone = 'Stick';    Kind = 'Button'
+    @{ Id = 'StickTrigger';   Zone = 'Stick'; Kind = 'Button'
        Label = 'Trigger'
        Where = 'the trigger on the front of the grip, under your index finger' }
 
-    @{ Id = 'StickSide';      Zone = 'Stick';    Kind = 'Button'
-       Label = 'Side face button'
-       Where = 'the large button on the side face of the grip, under your thumb' }
-
-    @{ Id = 'StickTopLeft';   Zone = 'Stick';    Kind = 'Button'
+    @{ Id = 'StickTopLeft';   Zone = 'Stick'; Kind = 'Button'
        Label = 'Stick top - left'
        Where = 'the left-hand button on the top of the stick head' }
 
-    @{ Id = 'StickTopRight';  Zone = 'Stick';    Kind = 'Button'
+    @{ Id = 'StickTopRight';  Zone = 'Stick'; Kind = 'Button'
        Label = 'Stick top - right'
        Where = 'the right-hand button on the top of the stick head' }
 
-    @{ Id = 'StickRaised';    Zone = 'Stick';    Kind = 'Button'
-       Label = 'Stick raised button'
-       Where = 'the raised button on the upper front of the grip, clear of the trigger' }
+    @{ Id = 'StickSide';      Zone = 'Stick'; Kind = 'Button'
+       Label = 'Side face button'
+       Where = 'the large button on the side face of the grip, under your thumb' }
 
-    @{ Id = 'StickHat';       Zone = 'Stick';    Kind = 'Hat'
+    @{ Id = 'StickHat';       Zone = 'Stick'; Kind = 'Hat'
        Label = 'Hat switch'
        Where = 'the multi-direction hat on the top of the stick head' }
 
     # --- throttle ------------------------------------------------------------
-    @{ Id = 'ThrottleFaceUp';    Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle face - up';    Ps4 = 'Triangle'
-       Where = 'the top button of the four in a diamond on the throttle' }
-
-    @{ Id = 'ThrottleFaceRight'; Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle face - right'; Ps4 = 'Circle'
-       Where = 'the right-hand button of the four in a diamond on the throttle' }
-
-    @{ Id = 'ThrottleFaceDown';  Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle face - down';  Ps4 = 'Cross'
-       Where = 'the bottom button of the four in a diamond on the throttle' }
-
-    @{ Id = 'ThrottleFaceLeft';  Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle face - left';  Ps4 = 'Square'
+    # The four face buttons sit in a diamond under the left thumb.
+    @{ Id = 'ThrottleFaceLeft';  Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'Square'
+       Label = 'Throttle face - left'
        Where = 'the left-hand button of the four in a diamond on the throttle' }
 
-    @{ Id = 'ThrottleThumb';     Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle thumb button'
-       Where = 'the button on the throttle handle itself, under your thumb' }
+    @{ Id = 'ThrottleFaceDown';  Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'Cross'
+       Label = 'Throttle face - down'
+       Where = 'the bottom button of the four in a diamond on the throttle' }
 
-    @{ Id = 'RockerForward';     Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle rocker - forward'
-       Where = 'the rocker on the throttle knob, pushed AWAY from you' }
+    @{ Id = 'ThrottleFaceRight'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'Circle'
+       Label = 'Throttle face - right'
+       Where = 'the right-hand button of the four in a diamond on the throttle' }
 
-    @{ Id = 'RockerBack';        Zone = 'Throttle'; Kind = 'Button'
-       Label = 'Throttle rocker - back'
-       Where = 'the same rocker, pulled TOWARDS you' }
+    @{ Id = 'ThrottleFaceUp';    Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'Triangle'
+       Label = 'Throttle face - up'
+       Where = 'the top button of the four in a diamond on the throttle' }
+
+    # The small two-way rocker on the throttle. It is two ordinary buttons, not
+    # an analogue axis, and Thrustmaster prints L2 and R2 on the two ends.
+    @{ Id = 'RockerR2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'R2'
+       Label = 'Throttle rocker - R2'
+       Where = 'the small two-way rocker on the throttle, pressed on the R2 end' }
+
+    @{ Id = 'RockerL2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'L2'
+       Label = 'Throttle rocker - L2'
+       Where = 'the same rocker, pressed on the L2 end' }
 
     # --- base ----------------------------------------------------------------
     @{ Id = 'BaseLeft';  Zone = 'Base'; Kind = 'Button'; Ps4 = 'Share'
@@ -95,17 +99,17 @@ $script:ControlCatalogue = @(
     # --- axes ----------------------------------------------------------------
     # Identified by what they do, not where they are, because that is the only
     # thing that can actually be measured about an axis.
-    @{ Id = 'AxisRoll';     Zone = 'Stick';    Kind = 'Axis'
+    @{ Id = 'AxisRoll';     Zone = 'Stick'; Kind = 'Axis'
        Label = 'Stick roll'
        Where = 'move the STICK left and right'
        Probe = 'Move the STICK fully to the RIGHT and hold it.' }
 
-    @{ Id = 'AxisPitch';    Zone = 'Stick';    Kind = 'Axis'
+    @{ Id = 'AxisPitch';    Zone = 'Stick'; Kind = 'Axis'
        Label = 'Stick pitch'
        Where = 'move the STICK forward and back'
        Probe = 'Push the STICK fully FORWARD, away from you, and hold it.' }
 
-    @{ Id = 'AxisTwist';    Zone = 'Stick';    Kind = 'Axis'
+    @{ Id = 'AxisTwist';    Zone = 'Stick'; Kind = 'Axis'
        Label = 'Stick twist'
        Where = 'twist the grip'
        Probe = 'TWIST the grip CLOCKWISE and hold it.'
@@ -115,12 +119,6 @@ $script:ControlCatalogue = @(
        Label = 'Throttle lever'
        Where = 'slide the throttle lever'
        Probe = 'Push the THROTTLE lever fully FORWARD and hold it.' }
-
-    @{ Id = 'AxisRocker';   Zone = 'Throttle'; Kind = 'Axis'; Optional = $true
-       Label = 'Throttle rocker (as an axis)'
-       Where = 'the rocker, if this unit reports it as an analogue axis'
-       Probe = 'Push the throttle ROCKER fully AWAY from you and hold it.'
-       Note  = 'on most Hotas 4 units the rocker is two buttons, not an axis -- the tool works out which' }
 )
 
 function Get-Control {

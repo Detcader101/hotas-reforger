@@ -127,6 +127,11 @@ $script:Jobs = @(
        Actions = @(@{ Name = 'TurretNextWeapon';    Preset = 'click'; Context = 'Turret' }
                    @{ Name = 'CharacterNextWeapon'; Preset = 'click'; Context = 'Character' }) }
 
+    @{ Id = 'TurretNextWeaponOnly'; Kind = 'Button'; Tier = 'A'
+       Label = 'Next weapon (turret only)'
+       Desc  = 'cycles turret weapons and nothing else'
+       Actions = @(@{ Name = 'TurretNextWeapon'; Preset = 'click'; Context = 'Turret' }) }
+
     @{ Id = 'Reload'; Kind = 'Button'; Tier = 'A'
        Label = 'Reload'
        Desc  = 'reloads the turret, and your weapon on foot'
@@ -235,30 +240,27 @@ $script:Profiles = @(
     @{
         Id    = 'helicopter'
         Label = 'Helicopter and door gunner'
-        Desc  = 'Everything on the stick flies or shoots. No on-foot actions, so nothing here can fire your rifle while you are walking around.'
+        Desc  = 'Everything on the stick flies or shoots. No on-foot combat actions, so nothing here can fire your rifle while you are walking around.'
         Bind  = @{
             AxisRoll     = 'CyclicRoll'
             AxisPitch    = 'CyclicPitch'
             AxisThrottle = 'Collective'
             AxisTwist    = 'AntiTorque'
-            AxisRocker   = 'AntiTorque'
 
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'TurretFireOnly'
-            StickSide     = 'Freelook'
             StickTopLeft  = 'Von'
             StickTopRight = 'Map'
-            StickRaised   = 'CameraType'
+            StickSide     = 'Freelook'
 
-            RockerForward = 'NextWeapon'
-            RockerBack    = 'TurretReloadOnly'
-
-            ThrottleFaceUp    = 'Autohover'
+            ThrottleFaceLeft  = 'SelectAction'
             ThrottleFaceDown  = 'WheelBrake'
-            ThrottleFaceLeft  = 'ParkingBrake'
-            ThrottleFaceRight = 'SelectAction'
-            ThrottleThumb     = 'Sights'
+            ThrottleFaceRight = 'CameraType'
+            ThrottleFaceUp    = 'Autohover'
+
+            RockerR2 = 'TurretNextWeaponOnly'
+            RockerL2 = 'TurretReloadOnly'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -268,30 +270,27 @@ $script:Profiles = @(
     @{
         Id    = 'full'
         Label = 'Fly, gun and fight on foot'
-        Desc  = 'As above, but the trigger and reload also work when you are out of the aircraft. Convenient if the stick is the only thing you touch; it does mean the trigger fires your rifle.'
+        Desc  = 'As above, but fire, reload and next-weapon also work when you are out of the aircraft. Convenient if the stick is the only thing you touch; it does mean the trigger fires your rifle.'
         Bind  = @{
             AxisRoll     = 'CyclicRoll'
             AxisPitch    = 'CyclicPitch'
             AxisThrottle = 'Collective'
             AxisTwist    = 'AntiTorque'
-            AxisRocker   = 'AntiTorque'
 
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'Fire'
-            StickSide     = 'Freelook'
             StickTopLeft  = 'Von'
             StickTopRight = 'Map'
-            StickRaised   = 'CameraType'
+            StickSide     = 'Freelook'
 
-            RockerForward = 'NextWeapon'
-            RockerBack    = 'Reload'
-
-            ThrottleFaceUp    = 'Autohover'
+            ThrottleFaceLeft  = 'SelectAction'
             ThrottleFaceDown  = 'WheelBrake'
-            ThrottleFaceLeft  = 'ParkingBrake'
-            ThrottleFaceRight = 'SelectAction'
-            ThrottleThumb     = 'Sights'
+            ThrottleFaceRight = 'CameraType'
+            ThrottleFaceUp    = 'Autohover'
+
+            RockerR2 = 'NextWeapon'
+            RockerL2 = 'Reload'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -301,30 +300,27 @@ $script:Profiles = @(
     @{
         Id    = 'conservative'
         Label = 'Confirmed actions only'
-        Desc  = 'Drops every Tier B action, so nothing in the file has gone unobserved. Costs you sights, engine start and engine stop, which move to explicit Free.'
+        Desc  = 'Drops every Tier B action, so nothing in the file has gone unobserved. Costs you engine start and stop, which become explicitly Free -- use the keyboard for those.'
         Bind  = @{
             AxisRoll     = 'CyclicRoll'
             AxisPitch    = 'CyclicPitch'
             AxisThrottle = 'Collective'
             AxisTwist    = 'AntiTorque'
-            AxisRocker   = 'AntiTorque'
 
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'TurretFireOnly'
-            StickSide     = 'Freelook'
             StickTopLeft  = 'Von'
             StickTopRight = 'Map'
-            StickRaised   = 'CameraType'
+            StickSide     = 'Freelook'
 
-            RockerForward = 'NextWeapon'
-            RockerBack    = 'Reload'
-
-            ThrottleFaceUp    = 'Autohover'
+            ThrottleFaceLeft  = 'SelectAction'
             ThrottleFaceDown  = 'WheelBrake'
-            ThrottleFaceLeft  = 'ParkingBrake'
-            ThrottleFaceRight = 'SelectAction'
-            ThrottleThumb     = 'Free'
+            ThrottleFaceRight = 'CameraType'
+            ThrottleFaceUp    = 'Autohover'
+
+            RockerR2 = 'TurretNextWeaponOnly'
+            RockerL2 = 'TurretReloadOnly'
 
             BaseLeft  = 'Free'
             BaseRight = 'Free'

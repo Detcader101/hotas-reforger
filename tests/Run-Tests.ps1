@@ -49,10 +49,9 @@ function New-FakeMap {
     $map.Device = 'T.Flight Hotas 4 (test)'
     $map.Verified = $true
     $map.Hat = $true
-    $order = @('StickTrigger', 'StickSide', 'StickTopLeft', 'StickTopRight', 'StickRaised',
-               'RockerForward', 'RockerBack',
-               'ThrottleFaceUp', 'ThrottleFaceRight', 'ThrottleFaceDown', 'ThrottleFaceLeft',
-               'ThrottleThumb')
+    $order = @('StickTrigger', 'StickTopLeft', 'StickTopRight', 'StickSide',
+               'ThrottleFaceLeft', 'ThrottleFaceDown', 'ThrottleFaceRight', 'ThrottleFaceUp',
+               'RockerR2', 'RockerL2', 'BaseLeft', 'BaseRight')
     for ($i = 0; $i -lt $order.Count; $i++) { $map.Buttons["$i"] = $order[$i] }
     $map.Axes['AxisRoll']     = @{ Index = 0; Sign = '+' }
     $map.Axes['AxisPitch']    = @{ Index = 1; Sign = '-' }   # inverted on purpose
@@ -77,7 +76,8 @@ Check 'every physical control has a label, zone and kind' ($bad.Count -eq 0) (($
 $noWhere = @($script:ControlCatalogue | Where-Object { $_.Kind -ne 'Axis' -and -not $_.Where })
 Check 'every button and hat says where to find it' ($noWhere.Count -eq 0)
 
-$noProbe = @(Get-ControlsByKind 'Axis' | Where-Object { -not $_.Probe })
+$axisControls = Get-ControlsByKind 'Axis'
+$noProbe = @($axisControls | Where-Object { -not $_.Probe })
 Check 'every axis has a probe instruction' ($noProbe.Count -eq 0)
 
 $jobIds = $script:Jobs | ForEach-Object { $_.Id }
@@ -116,12 +116,12 @@ $arrayHelpers = @('Get-ControlsByKind', 'Get-JobsByKind', 'Get-JobActionNames', 
                   'Get-BindingConflict', 'Get-TierBActions')
 
 $axesDirect = Get-ControlsByKind 'Axis'
-Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.Count -eq 5) `
+Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.Count -eq 4) `
       ("got $($axesDirect.Count)")
 Check 'each element is a control, not a nested array' ($axesDirect[0].Id -eq 'AxisRoll')
 
 $buttonsDirect = Get-ControlsByKind 'Button'
-Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 14) ("got $($buttonsDirect.Count)")
+Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 12) ("got $($buttonsDirect.Count)")
 
 $hatDirect = Get-ControlsByKind 'Hat'
 Check 'a single-element result is still an array' ($hatDirect.Count -eq 1 -and $hatDirect[0].Id -eq 'StickHat')
@@ -129,21 +129,28 @@ Check 'a single-element result is still an array' ($hatDirect.Count -eq 1 -and $
 $noneDirect = Get-ControlsByKind 'Nonsense'
 Check 'an empty result is still an array' ($noneDirect.Count -eq 0)
 
-$doubleWrapped = @()
+$misused = @()
 foreach ($f in (Get-ChildItem -Path $Root -Recurse -Include *.ps1)) {
     $n = 0
     foreach ($line in (Get-Content $f.FullName)) {
         $n++
-        # A pipeline inside the @() is fine -- that unrolls and recollects.
-        if ($line -match '\|') { continue }
+        if ($line.TrimStart().StartsWith('#')) { continue }
         foreach ($h in $arrayHelpers) {
+            # @(helper ...) -- collapses the array into a one-element array.
             if ($line -match [regex]::Escape("@($h ") -or $line -match [regex]::Escape("@($h)")) {
-                $doubleWrapped += "$($f.Name):$n  $h"
+                $misused += "$($f.Name):$n  @($h ...)"
+            }
+            # helper ... | -- the pipeline receives the whole array as ONE item,
+            # so Where-Object filters nothing and passes everything through. The
+            # earlier version of this check skipped any line containing a pipe,
+            # which is exactly how four tests came to pass for the wrong reason.
+            if ($line -match ([regex]::Escape($h) + '[^|]*\|')) {
+                $misused += "$($f.Name):$n  $h | ..."
             }
         }
     }
 }
-Check 'no call site wraps an array-returning helper in @()' ($doubleWrapped.Count -eq 0) ($doubleWrapped -join ' | ')
+Check 'no call site wraps an array-returning helper in @() or pipes it' ($misused.Count -eq 0) ($misused -join ' ; ')
 
 # =============================================================================
 Group 'Completeness -- the promise this tool exists to keep'
@@ -215,7 +222,7 @@ Check 'a hat the device has but identify never saw is a gap' (-not (Test-Coverag
 # generated preset leaves the trigger, the side button and both halves of the
 # throttle rocker doing nothing.
 $rows = Get-Coverage -Map (New-FakeMap) -Profile (Get-Profile 'helicopter') -ButtonCount 12 -HasHat $true
-foreach ($id in @('StickTrigger', 'StickSide', 'RockerForward', 'RockerBack')) {
+foreach ($id in @('StickTrigger', 'StickSide', 'RockerR2', 'RockerL2')) {
     $row = @($rows | Where-Object { $_.ControlId -eq $id })
     Check "$id is bound" ($row.Count -eq 1 -and $row[0].Status -eq 'Bound')
 }
@@ -388,22 +395,24 @@ Check 'freelook and its reset land on the same button' `
 Check 'the freelook reset carries the single-click filter' ($byName['FreelookReset'].Sources[0].SingleClick)
 Check 'plain freelook does not carry the single-click filter' (-not $byName['Freelook'].Sources[0].SingleClick)
 
-# The Hotas 4's twist grip and rudder rocker are the same physical axis, and
-# both are bound to anti-torque. An InputSourceSum adds its sources, so listing
-# the token twice would ask for double rudder.
-$sharedMap = New-FakeMap
-$sharedMap.Axes['AxisRocker'] = @{ Index = 5; Sign = '+' }
-$sharedBindings = Resolve-Bindings -Map $sharedMap -Profile $profile
-$anti = @($sharedBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
-Check 'twist and rocker on the same axis do not double up the input' ($anti.Sources.Count -eq 1)
+# An InputSourceSum ADDS its sources, so the same token listed twice on one
+# action asks for double that input. No shipped profile can do this now, but
+# the guard stays: a hand-edited device map or profile can, and the symptom
+# would be an axis that reaches full deflection at half travel.
+$twoOnOne = Copy-Profile $profile
+$twoOnOne.Bind['AxisPitch'] = 'AntiTorque'      # two controls, same job
 
-# A unit whose rocker really is its own axis should get both, summed on purpose.
-$splitMap = New-FakeMap
-$splitMap.Axes['AxisRocker'] = @{ Index = 3; Sign = '+' }
-$splitBindings = Resolve-Bindings -Map $splitMap -Profile $profile
+$sameAxis = New-FakeMap
+$sameAxis.Axes['AxisPitch'] = @{ Index = 5; Sign = '+' }   # ...and the same axis
+$sameAxisBindings = Resolve-Bindings -Map $sameAxis -Profile $twoOnOne
+$anti = @($sameAxisBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
+Check 'the same token twice on one action is merged, not doubled' ($anti.Sources.Count -eq 1) ("got " + $anti.Sources.Count + " job=" + $twoOnOne.Bind['AxisPitch'] + " tokens=" + (($anti.Sources | ForEach-Object { $_.Token }) -join ','))
+
+# Two genuinely different axes driving one action is legitimate, and summed.
+$splitBindings = Resolve-Bindings -Map (New-FakeMap) -Profile $twoOnOne
 $antiSplit = @($splitBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
-Check 'a rocker on its own axis adds a second source' ($antiSplit.Sources.Count -eq 2)
-Check 'the two rudder sources are the two different axes' `
+Check 'two different axes on one action are both kept' ($antiSplit.Sources.Count -eq 2) ("got " + $antiSplit.Sources.Count + " tokens=" + (($antiSplit.Sources | ForEach-Object { $_.Token }) -join ','))
+Check 'and they are the two different tokens' `
       (@($antiSplit.Sources | ForEach-Object { $_.Token } | Sort-Object -Unique).Count -eq 2)
 
 Check 'every source records which control it came from' `
@@ -435,13 +444,25 @@ $dupAction = "ActionManager {`r`n Actions {`r`n" +
              "  Action TurretFire {`r`n   InputSource InputSourceSum `"{1111111111111111}`" {`r`n    Sources {`r`n     InputSourceValue `"{2222222222222222}`" {`r`n      FilterPreset `"hold`"`r`n      Input `"joystick0:button0`"`r`n     }`r`n    }`r`n   }`r`n  }`r`n" +
              "  Action TurretFire {`r`n   InputSource InputSourceSum `"{3333333333333333}`" {`r`n    Sources {`r`n     InputSourceValue `"{4444444444444444}`" {`r`n      FilterPreset `"hold`"`r`n      Input `"joystick0:button1`"`r`n     }`r`n    }`r`n   }`r`n  }`r`n" +
              " }`r`n}`r`n"
-Check 'a duplicated action block is caught' (@(Test-Config $dupAction | Where-Object { $_ -match 'more than once' }).Count -gt 0)
+# Each of these asserts the SPECIFIC complaint, not just "something was wrong".
+# They used to pipe Test-Config straight into Where-Object, which handed the
+# filter the whole array as one item -- so they passed whatever the checker
+# said, including nothing relevant. Result assigned first, then filtered.
+$dupProblems = Test-Config $dupAction
+Check 'a duplicated action block is caught' `
+      (@($dupProblems | Where-Object { $_ -match 'more than once' }).Count -gt 0) ($dupProblems -join '; ')
+
+$dupIdProblems = Test-Config ($dupAction -replace '3333333333333333', '1111111111111111')
 Check 'a duplicated input source id is caught' `
-      (@(Test-Config ($dupAction -replace '3333333333333333', '1111111111111111') | Where-Object { $_ -match 'id' }).Count -gt 0)
+      (@($dupIdProblems | Where-Object { $_ -match 'id .* used more than once' }).Count -gt 0) ($dupIdProblems -join '; ')
+
+$badTokenProblems = Test-Config ($dupAction -replace 'joystick0:button1"', 'joystick0:axis9+"')
 Check 'a bad input token is caught' `
-      (@(Test-Config ($dupAction -replace 'joystick0:button1"', 'joystick0:axis9+"') | Where-Object { $_ -match 'token' }).Count -gt 0)
+      (@($badTokenProblems | Where-Object { $_ -match 'unrecognised input token' }).Count -gt 0) ($badTokenProblems -join '; ')
+
+$badPresetProblems = Test-Config ($dupAction -replace 'FilterPreset "hold"', 'FilterPreset "sideways"')
 Check 'a bad filter preset is caught' `
-      (@(Test-Config ($dupAction -replace 'FilterPreset "hold"', 'FilterPreset "sideways"') | Where-Object { $_ -match 'preset' }).Count -gt 0)
+      (@($badPresetProblems | Where-Object { $_ -match 'unrecognised filter preset' }).Count -gt 0) ($badPresetProblems -join '; ')
 
 # =============================================================================
 Group "Reading Reforger's own preset"
@@ -535,19 +556,20 @@ Group 'Tier reporting'
 $heliBindings = Resolve-Bindings -Map (New-FakeMap) -Profile (Get-Profile 'helicopter')
 Check 'the helicopter profile declares its unconfirmed actions' ((Get-TierBActions $heliBindings).Count -gt 0)
 
-# The full 15-control catalogue includes two base buttons the fake 12-button map
-# does not have. Engine start and stop live there, so they must NOT be reported
-# as unconfirmed on a unit that cannot reach them.
-Check 'unconfirmed actions are reported from the bindings, not the profile' `
-      ((Get-TierBActions $heliBindings) -notcontains 'HelicopterEngineStart') `
-      ((Get-TierBActions $heliBindings) -join ', ')
+# Engine start and stop are Tier B and live on the base buttons.
+Check 'a unit with the base buttons gets engine start reported' `
+      ((Get-TierBActions $heliBindings) -contains 'HelicopterEngineStart')
 
-$fullMap = New-FakeMap
-$fullMap.Buttons['12'] = 'BaseLeft'
-$fullMap.Buttons['13'] = 'BaseRight'
-$reachable = Resolve-Bindings -Map $fullMap -Profile (Get-Profile 'helicopter')
-Check 'a unit that does have the base buttons does get engine start reported' `
-      ((Get-TierBActions $reachable) -contains 'HelicopterEngineStart')
+# Reported from the resolved bindings, not the profile: a profile entry for a
+# control this unit has not got never reaches the file, and telling the user to
+# go and verify something that is not there is worse than saying nothing.
+$noBase = New-FakeMap
+$noBase.Buttons.Remove('10')
+$noBase.Buttons.Remove('11')
+$unreachable = Resolve-Bindings -Map $noBase -Profile (Get-Profile 'helicopter')
+Check 'a unit without them does not' `
+      ((Get-TierBActions $unreachable) -notcontains 'HelicopterEngineStart') `
+      ((Get-TierBActions $unreachable) -join ', ')
 
 $consBindings = Resolve-Bindings -Map (New-FakeMap) -Profile (Get-Profile 'conservative')
 Check 'the conservative profile declares no unconfirmed actions' ((Get-TierBActions $consBindings).Count -eq 0) `
