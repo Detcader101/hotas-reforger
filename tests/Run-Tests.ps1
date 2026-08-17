@@ -739,6 +739,75 @@ Check 'and it carries both the twist and the rocker' (@($dualRight.Sources).Coun
 Remove-Item $mixedPath, $dualPath -Force
 
 # =============================================================================
+Group 'Registration -- is the game even reading our file?'
+# =============================================================================
+#
+# A valid config in customInputConfigs does nothing on its own. Reforger keeps a
+# CustomConfigs list naming the active joystick scheme, and it will repoint that
+# at one of its own built-in presets. The custom file is then unread, and from
+# inside the game it looks exactly like a config with no bindings in it. Nothing
+# else here can see that, because nothing else looks outside the file it wrote.
+
+$settingsWithOurs = @'
+ActionManager "{69F52CC8DA80183A}" {
+ Actions {
+  Action SwitchCameraType {
+   InputSource InputSourceSum "{6A18FE10843C171C}" {
+    Sources {
+     InputSourceValue "{6A18FE10843C1ADB}" {
+      FilterPreset "click"
+      Input "keyboard:KC_BACKSLASH"
+     }
+    }
+   }
+  }
+ }
+ CustomConfigs {
+  "$profile:.save/settings/customInputConfigs/Joystick_TFlightHotas4_0.conf"
+ }
+}
+'@
+
+$settingsWithSaitek = $settingsWithOurs -replace [regex]::Escape('$profile:.save/settings/customInputConfigs/Joystick_TFlightHotas4_0.conf'),
+                                                 '{F5111781083FD7CE}Configs/System/ControlSchemes/Joystick/Joystick_SaitekProFlightX56Rhino_0_Stick_1_Throttle.conf'
+
+$oursPath   = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-ius-a-{0}.conf" -f [guid]::NewGuid())
+$saitekPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-ius-b-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $oursPath   -Value $settingsWithOurs   -Encoding UTF8 -NoNewline
+Set-Content -Path $saitekPath -Value $settingsWithSaitek -Encoding UTF8 -NoNewline
+
+Check 'our config is seen as registered' `
+      (Test-ConfigRegistered -SettingsPath $oursPath -ConfigFileName 'Joystick_TFlightHotas4_0.conf')
+Check 'a built-in preset is not mistaken for ours' `
+      (-not (Test-ConfigRegistered -SettingsPath $saitekPath -ConfigFileName 'Joystick_TFlightHotas4_0.conf'))
+Check 'the registered path is readable' `
+      ((Get-RegisteredConfig -SettingsPath $saitekPath)[0] -match 'SaitekProFlightX56Rhino')
+Check 'a missing settings file reports nothing rather than throwing' `
+      ((Get-RegisteredConfig -SettingsPath 'X:\nope.conf').Count -eq 0)
+
+$fixed = Set-RegisteredConfig -Text $settingsWithSaitek -ConfigFileName 'Joystick_TFlightHotas4_0.conf'
+$fixedPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-ius-c-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $fixedPath -Value $fixed -Encoding UTF8 -NoNewline
+
+Check 'repointing makes it registered' `
+      (Test-ConfigRegistered -SettingsPath $fixedPath -ConfigFileName 'Joystick_TFlightHotas4_0.conf')
+Check 'and drops the preset it was pointed at' ($fixed -notmatch 'Saitek')
+Check 'the $profile: prefix survives verbatim' ($fixed -match [regex]::Escape('"$profile:.save/settings/customInputConfigs/Joystick_TFlightHotas4_0.conf"'))
+
+# This file also holds the user's keyboard and mouse rebinds. Losing those
+# would be a poor trade for fixing the registration.
+Check 'keyboard and mouse rebinds are untouched' `
+      (([regex]::Matches($fixed, '(?m)^\s*Action\s+\w+\s*\{')).Count -eq
+       ([regex]::Matches($settingsWithSaitek, '(?m)^\s*Action\s+\w+\s*\{')).Count)
+Check 'and by name' ($fixed -match 'Action SwitchCameraType' -and $fixed -match 'KC_BACKSLASH')
+
+$twice = Set-RegisteredConfig -Text $fixed -ConfigFileName 'Joystick_TFlightHotas4_0.conf'
+Check 'registering an already-registered file changes nothing further' `
+      ((([regex]::Matches($twice, 'customInputConfigs')).Count) -eq 1)
+
+Remove-Item $oursPath, $saitekPath, $fixedPath -Force
+
+# =============================================================================
 Group 'Validation catches malformed files'
 # =============================================================================
 

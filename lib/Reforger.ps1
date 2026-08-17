@@ -1011,6 +1011,67 @@ function Resolve-RepairBindings {
     }
 }
 
+# -----------------------------------------------------------------------------
+# Registration -- is the game even reading our file?
+# -----------------------------------------------------------------------------
+#
+# Writing a valid config into customInputConfigs is not enough. Reforger keeps a
+# CustomConfigs list in InputUserSettings.conf naming the joystick scheme that
+# is actually active, and it will happily repoint that at one of its own built-in
+# presets -- a Saitek X56 scheme, in the case that prompted this. The custom
+# file then sits on disk, perfectly valid, completely unread, and the game shows
+# no bindings at all.
+#
+# Nothing else in this tool can detect that, because nothing else looks outside
+# the file it wrote.
+
+function Get-RegisteredConfig {
+    <# The paths currently listed in CustomConfigs. #>
+    param([string] $SettingsPath)
+    if (-not (Test-Path $SettingsPath)) { return ,@() }
+    $text = Get-Content -Raw -Path $SettingsPath
+    # Match to a closing brace that starts its own line. A plain non-greedy \}
+    # stops at the first brace it finds -- and Reforger's own preset paths embed
+    # a resource GUID in braces, so it truncated mid-path and read nothing.
+    $m = [regex]::Match($text, 'CustomConfigs\s*\{([\s\S]*?)\r?\n\s*\}')
+    if (-not $m.Success) { return ,@() }
+    $out = @()
+    foreach ($q in [regex]::Matches($m.Groups[1].Value, '"([^"]+)"')) { $out += $q.Groups[1].Value }
+    return ,$out
+}
+
+function Test-ConfigRegistered {
+    <# Is our config the one the game will load? #>
+    param([string] $SettingsPath, [string] $ConfigFileName)
+    foreach ($p in (Get-RegisteredConfig -SettingsPath $SettingsPath)) {
+        if ($p -like "*$ConfigFileName") { return $true }
+    }
+    return $false
+}
+
+function Set-RegisteredConfig {
+    <#
+        Replace the CustomConfigs list with our config, and return the new text.
+
+        Deliberately a targeted rewrite of one block rather than a regeneration
+        of the file: InputUserSettings.conf also holds the user's keyboard and
+        mouse rebinds, and this tool has no business touching those.
+    #>
+    param([string] $Text, [string] $ConfigFileName)
+    $entry = '"$profile:.save/settings/customInputConfigs/' + $ConfigFileName + '"'
+    $block = "CustomConfigs {`r`n  $entry`r`n }"
+
+    # Same brace caution as Get-RegisteredConfig: Reforger's built-in preset
+    # paths embed a resource GUID in braces, so a plain non-greedy \} stops
+    # inside the path and the rewrite corrupts the file.
+    $pattern = 'CustomConfigs\s*\{[\s\S]*?\r?\n\s*\}'
+    if ($Text -match $pattern) {
+        return ([regex]::Replace($Text, $pattern, $block.Replace('$', '$$')))
+    }
+    # No block at all: add one just inside the closing brace.
+    return ($Text -replace '(?s)\}\s*$', " $block`r`n}`r`n")
+}
+
 function Get-UnknownActionBlock {
     <# Raw blocks for actions no job in this tool produces. #>
     param($Parsed)

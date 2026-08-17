@@ -51,6 +51,7 @@ param(
     [switch] $Verify,
     [switch] $Watch,
     [switch] $Audit,
+    [switch] $Register,
     [switch] $KeyTest,
     [switch] $CheckLog,
     [switch] $Restore,
@@ -567,6 +568,24 @@ function Invoke-Verify {
     }
 
     $installed = Join-Path (Get-InputConfigDir) (Get-ConfigFileName $stick)
+
+    # A valid file the game is not pointed at does nothing at all, and looks
+    # from inside the game exactly like a config with no bindings in it.
+    $settings = Get-InputUserSettingsPath
+    if ($settings) {
+        Write-Host ''
+        Write-Section 'IS REFORGER ACTUALLY LOADING IT?'
+        if (Test-ConfigRegistered -SettingsPath $settings -ConfigFileName (Get-ConfigFileName $stick)) {
+            Write-Good 'yes -- registered in CustomConfigs'
+        } else {
+            $ok = $false
+            Write-Bad 'NO. The game is pointed at a different joystick scheme:'
+            foreach ($p in (Get-RegisteredConfig -SettingsPath $settings)) { Write-Bad "  $p" }
+            Write-Note 'The config below can be flawless and still do nothing. Fix with:'
+            Write-Note '  .\Hotas4.ps1 -Register'
+        }
+    }
+
     if (Test-Path $installed) {
         Write-Host ''
         Write-Section 'INSTALLED FILE'
@@ -1118,6 +1137,101 @@ function Show-AuditReport {
     Write-Note 'Next:  .\Hotas4.ps1 -Apply -ProfileName pilot'
 }
 
+function Get-InputUserSettingsPath {
+    <#
+        Lives under a per-app, per-Steam-account folder, so it is found rather
+        than assumed. Newest wins if somehow there are several.
+    #>
+    $root = Join-Path (Get-ReforgerRoot) 'profile\.save'
+    if (-not (Test-Path $root)) { return $null }
+    $hit = Get-ChildItem -Path $root -Filter 'InputUserSettings.conf' -Recurse -ErrorAction SilentlyContinue |
+           Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $hit) { return $null }
+    return $hit.FullName
+}
+
+function Invoke-Register {
+    <#
+        Point Reforger at the config this tool writes.
+
+        A valid file in customInputConfigs does nothing on its own. The game
+        keeps a CustomConfigs list naming the active joystick scheme, and it
+        will repoint that at one of its own built-in presets -- at which point
+        the custom file is unread and the game shows no bindings, with nothing
+        wrong in the file itself to find.
+    #>
+    Write-Title 'REGISTER' 'make Reforger actually load the config'
+
+    $stick = Resolve-Stick
+    $name = Get-ConfigFileName $stick
+    $settings = Get-InputUserSettingsPath
+    if (-not $settings) {
+        Write-Bad 'Cannot find InputUserSettings.conf.'
+        Write-Note 'Launch Reforger once so it creates a profile, then try again.'
+        return 1
+    }
+
+    Write-Host ''
+    Write-Field 'settings file' $settings
+    Write-Field 'wants to load' $name
+
+    $current = Get-RegisteredConfig -SettingsPath $settings
+    Write-Host ''
+    Write-Section 'CURRENTLY REGISTERED'
+    if ($current.Count -eq 0) { Write-Warn 'nothing -- no joystick scheme is active' }
+    foreach ($p in $current) { Write-Field '' $p 'Yellow' }
+
+    if (Test-ConfigRegistered -SettingsPath $settings -ConfigFileName $name) {
+        Write-Host ''
+        Write-Good 'Already registered. The game is reading the config this tool writes.'
+        return 0
+    }
+
+    Write-Host ''
+    Write-Bad "Reforger is NOT loading $name."
+    Write-Note 'The file can be perfectly valid and still do nothing, because the'
+    Write-Note 'game is pointed at a different scheme entirely.'
+
+    if (-not (Assert-GameClosed)) { return 1 }
+
+    $text = Get-Content -Raw -Path $settings
+    $new = Set-RegisteredConfig -Text $text -ConfigFileName $name
+
+    # Only the CustomConfigs block may change. This file also holds keyboard and
+    # mouse rebinds, and losing those would be a poor trade for fixing this.
+    $before = ([regex]::Matches($text, '(?m)^\s*Action\s+(\w+)\s*\{')).Count
+    $after  = ([regex]::Matches($new,  '(?m)^\s*Action\s+(\w+)\s*\{')).Count
+    if ($before -ne $after) {
+        Write-Bad "Refusing to write: the edit would change $before action blocks to $after."
+        return 1
+    }
+
+    Write-Host ''
+    Write-Section 'WILL REGISTER'
+    Write-Field '' ('$profile:.save/settings/customInputConfigs/' + $name) 'Green'
+    Write-Note "$before keyboard/mouse rebind(s) in this file, left untouched"
+
+    if ($DryRun) { Write-Host ''; Write-Note '-DryRun: nothing written.'; return 0 }
+    if (-not $Force -and -not (Confirm-Action 'Register it?')) { Write-Note 'Nothing written.'; return 0 }
+
+    if (-not (Test-Path $script:BackupDir)) { New-Item -ItemType Directory -Path $script:BackupDir -Force | Out-Null }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    Copy-Item -Path $settings -Destination (Join-Path $script:BackupDir "$stamp-InputUserSettings.conf") -Force
+    Write-Good "backed up -> backups\$stamp-InputUserSettings.conf"
+
+    Set-Content -Path $settings -Value $new -Encoding UTF8 -NoNewline
+
+    if (Test-ConfigRegistered -SettingsPath $settings -ConfigFileName $name) {
+        Write-Good 'registered and verified'
+        Write-Host ''
+        Write-Note 'If the game repoints this again, it is the joystick preset picker in'
+        Write-Note 'Settings -> Controls. Choosing a preset there overwrites this line.'
+        return 0
+    }
+    Write-Bad 'Wrote the file but it still does not reference the config.'
+    return 1
+}
+
 function Invoke-Bind {
     <#
         Record a control's input token by hand.
@@ -1424,6 +1538,7 @@ elseif ($Apply)    { $exit = Invoke-Apply }
 elseif ($Show)     { $exit = Invoke-Show }
 elseif ($Verify)   { $exit = Invoke-Verify }
 elseif ($Watch)    { $exit = Invoke-Watch }
+elseif ($Register) { $exit = Invoke-Register }
 elseif ($Bind)     { $exit = Invoke-Bind -Pairs $Bind }
 elseif ($Audit)    { $exit = Invoke-Audit }
 elseif ($KeyTest)  { $exit = Invoke-KeyTest }
