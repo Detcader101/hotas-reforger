@@ -168,8 +168,9 @@ $script:Jobs = @(
 
     @{ Id = 'WheelBrake'; Kind = 'Button'; Tier = 'A'
        Label = 'Wheel brake'
-       Desc  = 'momentary brake, held'
-       Actions = @(@{ Name = 'HelicopterWheelBrake'; Preset = 'pressed'; Context = 'Helicopter' }) }
+       Desc  = 'brake while held, and sets the parking brake -- as Reforger does itself'
+       Actions = @(@{ Name = 'HelicopterWheelBrake';           Preset = 'pressed'; Context = 'Helicopter' }
+                   @{ Name = 'HelicopterWheelBrakePersistent'; Preset = 'pressed'; Context = 'Helicopter' }) }
 
     @{ Id = 'ParkingBrake'; Kind = 'Button'; Tier = 'A'
        Label = 'Parking brake'
@@ -263,36 +264,39 @@ $script:Profiles = @(
 
     @{
         Id    = 'pilot'
-        Label = 'Helicopter pilot -- every button live in the pilot seat'
+        Label = 'Helicopter pilot -- gunship capable'
         Seat  = 'Pilot'
-        Desc  = 'Only actions that do something while you are flying. No turret or on-foot actions, because those are dead in the cockpit however correctly they are bound.'
+        Desc  = 'Flying, plus the gun and rockets an armed helicopter gives its pilot. Positions match what was already working, so only the controls that needed changing move.'
         Bind  = @{
             AxisRoll     = 'CyclicRoll'
             AxisPitch    = 'CyclicPitch'
             AxisThrottle = 'Collective'
             AxisTwist    = 'AntiTorque'
 
+            # The rocker is deliberately NOT on anti-torque. Bound to axis4 it
+            # made the aircraft yaw right under command and drift left when
+            # released -- a constant spin. axis4 is this tool's INFERENCE of
+            # winmm's V, and it is the only unverified link in the chain, so it
+            # stays out until the game itself names the token.
+            ThrottleRocker = 'Free'
+
             StickHat     = 'FreelookHat'
 
-            StickTrigger  = 'PerformAction'
-            StickL1       = 'Von'
-            StickL3       = 'SelectAction'
-            StickR3       = 'Freelook'
+            StickTrigger = 'TurretFireOnly'
+            StickL1      = 'Von'
+            StickR3      = 'SightsToggle'
+            StickL3      = 'CameraType'
 
-            ThrottleFaceLeft  = 'Map'
+            ThrottleFaceLeft  = 'Autohover'
             ThrottleFaceDown  = 'WheelBrake'
-            ThrottleFaceRight = 'ParkingBrake'
-            ThrottleFaceUp    = 'Autohover'
+            ThrottleFaceRight = 'Freelook'
+            ThrottleFaceUp    = 'SelectAction'
 
-            ThrottleL2 = 'VonDirectHold'
-            ThrottleR2 = 'SightsToggle'
+            ThrottleR2 = 'TurretNextWeaponOnly'
+            ThrottleL2 = 'TurretReloadOnly'
 
-            # An analogue slider. Thrustmaster wire it as a second rudder
-            # control alongside the twist grip, so that is what it does.
-            ThrottleRocker = 'AntiTorque'
-
-            BaseLeft  = 'EngineStart'
-            BaseRight = 'EngineStop'
+            BaseLeft  = 'Map'
+            BaseRight = 'EngineStart'
         }
     }
     @{
@@ -429,7 +433,16 @@ function Test-JobLiveInSeat {
     $ctx = Get-JobContext $Job
     if ($ctx -contains 'Global') { return $true }
     switch ($Seat) {
-        'Pilot'  { return ($ctx -contains 'Helicopter') }
+        # Turret counts for a pilot. An armed helicopter's pilot occupies a
+        # turret compartment for the nose gun and rocket pods, so TurretFire,
+        # TurretADS, TurretReload and TurretNextWeapon all reach him.
+        #
+        # This was previously Helicopter-only, on the strength of four turret
+        # actions doing nothing in flight. They were doing nothing because the
+        # config had a byte-order mark and the whole file was being parsed as
+        # empty -- every binding in it was inert, turret or not. The evidence
+        # for the narrower rule was an artefact of a different bug.
+        'Pilot'  { return (($ctx -contains 'Helicopter') -or ($ctx -contains 'Turret')) }
         'Gunner' { return ($ctx -contains 'Turret') }
         'Foot'   { return ($ctx -contains 'Character') }
         'Driver' { return ($ctx -contains 'Vehicle') }
@@ -592,7 +605,7 @@ function New-ActionBlock {
         $lines += "     InputSourceValue `"{$(Get-NextId $Series)}`" {"
         $lines += "      FilterPreset `"$($s.Preset)`""
         $lines += "      Input `"$($s.Token)`""
-        if ($s.SingleClick) {
+        if (Get-Opt $s 'SingleClick' $false) {
             $lines += "      Filter InputFilterSingleClick `"{$(Get-NextId $Series)}`" {"
             $lines += '      }'
         }

@@ -221,7 +221,13 @@ Check 'an explicitly freed control is reported as Free' `
 # on some other device -- has to reach the config like any measured one.
 $boundRocker = New-FakeMap
 $boundRocker.Axes['ThrottleRocker'] = @{ Index = 6; Sign = '+' }
-$rockerBindings = Resolve-Bindings -Map $boundRocker -Profile (Get-Profile 'pilot')
+
+# The shipped pilot profile leaves the rocker Free, so give it a job here: the
+# point is that a token supplied by hand reaches the config, not that this
+# particular profile uses one.
+$rockerProfile = Copy-Profile (Get-Profile 'pilot')
+$rockerProfile.Bind['ThrottleRocker'] = 'AntiTorque'
+$rockerBindings = Resolve-Bindings -Map $boundRocker -Profile $rockerProfile
 $rockerTokens = @($rockerBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0].Sources |
                 ForEach-Object { $_.Token }
 Check 'a hand-supplied rocker token reaches the config' (@($rockerTokens) -contains 'joystick0:axis6+') `
@@ -466,11 +472,15 @@ Check 'two different axes on one action are both kept' ($antiSplit.Sources.Count
 Check 'and they are the two different tokens' `
       (@($antiSplit.Sources | ForEach-Object { $_.Token } | Sort-Object -Unique).Count -eq 2)
 
-# The shipped pilot profile does exactly this: twist and rocker both on rudder.
+# The shipped pilot profile deliberately does NOT: binding the rocker to rudder
+# on the inferred axis4 made the aircraft yaw under command and drift back the
+# other way when released. Rudder is the twist grip alone until the game itself
+# names the rocker's token.
 $pilotBindings = Resolve-Bindings -Map (New-FakeMap) -Profile (Get-Profile 'pilot')
-$dualRudder = @($pilotBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
-Check 'the pilot profile gives rudder two sources -- twist and rocker' ($dualRudder.Sources.Count -eq 2) `
-      ((($dualRudder.Sources | ForEach-Object { $_.Token }) -join ','))
+$soloRudder = @($pilotBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
+Check 'the pilot profile drives rudder from the twist grip alone' ($soloRudder.Sources.Count -eq 1) `
+      ((($soloRudder.Sources | ForEach-Object { $_.Token }) -join ','))
+Check 'and that source is the twist, not the rocker' ($soloRudder.Sources[0].ControlId -eq 'AxisTwist')
 
 Check 'every source records which control it came from' `
       (@($bindings | ForEach-Object { $_.Sources } | Where-Object { -not $_.ControlId }).Count -eq 0)
@@ -498,8 +508,13 @@ Group 'Seat liveness -- a bound control is not the same as a working one'
 # audit said 17 of 17 -- and in the pilot's seat not one of them did anything,
 # because Reforger's HelicopterContext and TurretContext are separate.
 
-Check 'a turret job is not live in the pilot seat' `
-      (-not (Test-JobLiveInSeat -Job (Get-Job 'TurretFireOnly') -Seat 'Pilot'))
+# Turret counts for a pilot: an armed helicopter's pilot occupies a turret
+# compartment for the gun and rockets. This asserted the opposite until the
+# BOM fix showed the evidence for the narrower rule was an artefact.
+Check 'a turret job IS live in the pilot seat' `
+      (Test-JobLiveInSeat -Job (Get-Job 'TurretFireOnly') -Seat 'Pilot')
+Check 'an on-foot job is still dead in the pilot seat' `
+      (-not (Test-JobLiveInSeat -Job (Get-Job 'Zoom') -Seat 'Pilot'))
 Check 'a turret job is live in a gunner seat' `
       (Test-JobLiveInSeat -Job (Get-Job 'TurretFireOnly') -Seat 'Gunner')
 Check 'a helicopter job is live in the pilot seat' `
@@ -508,8 +523,8 @@ Check 'a global job is live in every seat' `
       ((Test-JobLiveInSeat -Job (Get-Job 'Map') -Seat 'Pilot') -and
        (Test-JobLiveInSeat -Job (Get-Job 'Map') -Seat 'Gunner') -and
        (Test-JobLiveInSeat -Job (Get-Job 'Map') -Seat 'Foot'))
-Check 'a job with both turret and character actions is live in neither pilot nor global terms' `
-      (-not (Test-JobLiveInSeat -Job (Get-Job 'Fire') -Seat 'Pilot'))
+Check 'a job mixing turret and character actions is live for a pilot via the turret half' `
+      (Test-JobLiveInSeat -Job (Get-Job 'Fire') -Seat 'Pilot')
 
 # An explicit Seats list overrides the context-derived answer, for the cases
 # context alone gets wrong: a gunship pilot reaches turret actions through the
@@ -531,10 +546,15 @@ Check 'every control in the pilot profile does something in the pilot seat' `
 $pilotRows = Get-Coverage -Map (New-FakeMap) -Profile $pilot -ButtonCount 12 -HasHat $true
 Check 'the pilot profile still covers every control' (Test-CoverageComplete $pilotRows)
 
-# And the profile that caused the failure is still honestly described: it does
-# contain gunner-only jobs, and the check can see them.
-$heliDead = Get-DeadJobsInSeat -Profile (Get-Profile 'helicopter') -Seat 'Pilot'
-Check 'the check does detect gunner-only jobs in the mixed profile' ($heliDead.Count -gt 0)
+# The check has to be able to fail, or it proves nothing. On-foot combat is the
+# case that genuinely is dead in a cockpit -- unlike turret actions, which an
+# armed helicopter's pilot reaches through the gun's compartment.
+$deadProfile = @{ Id = 'dead'; Label = 'dead'; Desc = ''
+                  Bind = @{ StickTrigger = 'Zoom'; StickL1 = 'Von' } }
+$spotted = Get-DeadJobsInSeat -Profile $deadProfile -Seat 'Pilot'
+Check 'the check detects a job that really is dead in the pilot seat' ($spotted.Count -eq 1) `
+      ($spotted -join ', ')
+Check 'and does not flag the one that is fine' ($spotted -notmatch 'StickL1')
 
 # =============================================================================
 Group 'Audit state'
@@ -677,8 +697,8 @@ Group 'Repair -- replace what is inert in this seat, keep what works'
 $mixedBindings = @(
     @{ Action = 'HelicopterAutohoverToggle'; Sources = @(@{ Token = 'joystick0:button4'; Preset = 'click'; ControlId = 'ThrottleFaceLeft' }) }
     @{ Action = 'GadgetMap';                 Sources = @(@{ Token = 'joystick0:button10'; Preset = 'select'; ControlId = 'BaseLeft' }) }
-    @{ Action = 'TurretFire';                Sources = @(@{ Token = 'joystick0:button0'; Preset = 'hold'; ControlId = 'StickTrigger' }) }
-    @{ Action = 'TurretReload';              Sources = @(@{ Token = 'joystick0:button8'; Preset = 'click'; ControlId = 'ThrottleR2' }) }
+    @{ Action = 'CharacterFocus';            Sources = @(@{ Token = 'joystick0:button0'; Preset = 'hold'; ControlId = 'StickTrigger' }) }
+    @{ Action = 'CharacterReload';           Sources = @(@{ Token = 'joystick0:button8'; Preset = 'click'; ControlId = 'ThrottleR2' }) }
     @{ Action = 'SomeModAction';             Sources = @(@{ Token = 'joystick0:button9'; Preset = 'click'; ControlId = 'ThrottleL2' }) }
 )
 $mixedPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-mixed-{0}.conf" -f [guid]::NewGuid())
@@ -688,7 +708,7 @@ $mixed = Read-Config $mixedPath
 $deadInSeat = Get-DeadBoundControl -Map (New-FakeMap) -Parsed $mixed -Seat 'Pilot'
 $deadIds = @($deadInSeat | ForEach-Object { $_.ControlId })
 
-Check 'a turret action bound while flying is found' ($deadIds -contains 'StickTrigger')
+Check 'an on-foot action bound while flying is found' ($deadIds -contains 'StickTrigger')
 Check 'so is a second one' ($deadIds -contains 'ThrottleR2')
 Check 'a helicopter action is left alone' ($deadIds -notcontains 'ThrottleFaceLeft')
 Check 'a global action is left alone' ($deadIds -notcontains 'BaseLeft')
@@ -698,13 +718,13 @@ Check 'an action from a mod is never called dead' ($deadIds -notcontains 'Thrott
       ("flagged: " + ($deadIds -join ', '))
 
 $rep = Resolve-RepairBindings -Map (New-FakeMap) -Profile (Get-Profile 'pilot') -Parsed $mixed -Seat 'Pilot'
-Check 'the dead actions are dropped' (($rep.Remove -contains 'TurretFire') -and ($rep.Remove -contains 'TurretReload'))
+Check 'the dead actions are dropped' (($rep.Remove -contains 'CharacterFocus') -and ($rep.Remove -contains 'CharacterReload'))
 Check 'the working ones are not' (($rep.Remove -notcontains 'GadgetMap') -and ($rep.Remove -notcontains 'SomeModAction'))
 
 $repText = Build-Config -Bindings $rep.Add -Preserve @($rep.Pruned.Actions.Keys | ForEach-Object { $rep.Pruned.Raw[$_] })
 Check 'the repaired config validates' ((Test-Config $repText).Count -eq 0) ((Test-Config $repText) -join '; ')
 Check 'the mod action survives repair' ($repText -match 'SomeModAction')
-Check 'no turret action survives repair' ($repText -notmatch 'Action TurretFire ')
+Check 'no on-foot-only action survives repair' ($repText -notmatch 'Action CharacterFocus ')
 
 # Every replacement must itself be live in the seat, or the repair is theatre.
 $ctxMap = Get-ActionContextMap
@@ -728,7 +748,11 @@ $dual = Read-Config $dualPath
 $dualMap = New-DeviceMap
 $dualMap.Axes['AxisTwist']      = @{ Index = 5; Sign = '+' }
 $dualMap.Axes['ThrottleRocker'] = @{ Index = 4; Sign = '+' }
-$dualFill = Resolve-FillBindings -Map $dualMap -Profile (Get-Profile 'pilot') -Parsed $dual -Seat 'Pilot'
+# The shipped pilot profile leaves the rocker Free, so this uses a variant that
+# does not -- the behaviour under test is the merge, not the profile.
+$dualProfile = Copy-Profile (Get-Profile 'pilot')
+$dualProfile.Bind['ThrottleRocker'] = 'AntiTorque'
+$dualFill = Resolve-FillBindings -Map $dualMap -Profile $dualProfile -Parsed $dual -Seat 'Pilot'
 $dualText = Build-Config -Bindings $dualFill.Add -Preserve @()
 Check 'adding a second rudder does not declare the action twice' ((Test-Config $dualText).Count -eq 0) `
       ((Test-Config $dualText) -join '; ')
