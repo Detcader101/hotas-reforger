@@ -105,11 +105,11 @@ $script:ControlCatalogue = @(
     # catalogued as a button, which made the audit watch only for button presses
     # and conclude the rocker sent nothing at all. It reports on winmm's U or V,
     # which is why it needs a probe like any other axis.
-    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Axis'
+    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Axis'; Unreadable = $true
        Label = 'Throttle rocker'
        Where = 'the small two-way rocker on the throttle knob'
        Probe = 'Push the throttle ROCKER fully one way and hold it.'
-       Note  = 'Thrustmaster wire this as a second rudder control, parallel to the twist grip' }
+       Note  = 'winmm cannot read this control on a Hotas 4 -- it works in joy.cpl and moves none of the six axes winmm exposes. Reforger may still see it; get the token from the game and use -Bind.' }
 
     # --- base ----------------------------------------------------------------
     @{ Id = 'BaseLeft';  Zone = 'Base'; Kind = 'Button'; Ps4 = 'Share'
@@ -301,10 +301,17 @@ function Get-Coverage {
 
     foreach ($c in (Get-ControlsByKind 'Axis')) {
         if (-not $Map.Axes.ContainsKey($c.Id)) {
-            # An optional axis this unit does not have is not a gap. The rocker
-            # is the reason: on most Hotas 4 units it is two buttons, and those
-            # buttons are audited on their own rows.
             if (Get-Opt $c 'Optional' $false) { continue }
+
+            # A control winmm cannot read is not an oversight and not a dead
+            # control -- it is one this tool has no way to measure. Reforger may
+            # well see it. The honest status is "tell me its token", not
+            # "you forgot this".
+            if (Get-Opt $c 'Unreadable' $false) {
+                $rows += @{ Token = '-'; ControlId = $c.Id; Label = $c.Label; Zone = $c.Zone
+                            Kind = 'Axis'; Status = 'NeedsBind'; JobId = $null }
+                continue
+            }
             $rows += @{ Token = '-'; ControlId = $c.Id; Label = $c.Label; Zone = $c.Zone
                         Kind = 'Axis'; Status = 'Unnamed'; JobId = $null }
             continue

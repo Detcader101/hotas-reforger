@@ -218,6 +218,25 @@ Check 'an explicitly freed control does not count as a gap' (Test-CoverageComple
 Check 'an explicitly freed control is reported as Free' `
       (@($rows | Where-Object { $_.ControlId -eq 'StickTrigger' })[0].Status -eq 'Free')
 
+# A control winmm cannot read is neither an oversight nor a dead control. It
+# must not block completeness, and it must not be silently ignored either.
+$noRocker = New-FakeMap
+$noRocker.Axes.Remove('ThrottleRocker')
+$rockerRows = Get-Coverage -Map $noRocker -Profile (Get-Profile 'pilot') -ButtonCount 12 -HasHat $true
+$rockerRow = @($rockerRows | Where-Object { $_.ControlId -eq 'ThrottleRocker' })
+Check 'an unreadable control is reported as needing a manual bind' `
+      ($rockerRow.Count -eq 1 -and $rockerRow[0].Status -eq 'NeedsBind')
+Check 'and does not block completeness' (Test-CoverageComplete $rockerRows)
+
+# ...but once its token is supplied by hand it binds like anything else.
+$boundRocker = New-FakeMap
+$boundRocker.Axes['ThrottleRocker'] = @{ Index = 6; Sign = '+' }
+$rockerBindings = Resolve-Bindings -Map $boundRocker -Profile (Get-Profile 'pilot')
+$rockerTokens = @($rockerBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0].Sources |
+                ForEach-Object { $_.Token }
+Check 'a hand-supplied rocker token reaches the config' (@($rockerTokens) -contains 'joystick0:axis6+') `
+      (@($rockerTokens) -join ',')
+
 $noHat = New-FakeMap
 $noHat.Hat = $false
 $rows = Get-Coverage -Map $noHat -Profile (Get-Profile 'helicopter') -ButtonCount 12 -HasHat $true

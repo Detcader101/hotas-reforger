@@ -62,6 +62,8 @@ param(
     [string] $ConfigName,
     [switch] $DryRun,
     [switch] $Replace,
+    [switch] $All,
+    [string[]] $Bind,
     [switch] $Force
 )
 
@@ -216,7 +218,12 @@ function Invoke-Identify {
 
 function Invoke-IdentifyAxes {
     param($Stick, $Map)
-    $axes = Get-ControlsByKind 'Axis'
+    $allAxes = Get-ControlsByKind 'Axis'
+    $axes = @()
+    foreach ($a in $allAxes) {
+        if ($All -or -not $Map.Axes.ContainsKey($a.Id)) { $axes += $a }
+    }
+    if ($axes.Count -eq 0) { Write-Section 'AXES'; Write-Good 'Every axis is already identified.'; return $true }
     $i = 0
     while ($i -lt $axes.Count) {
         $c = $axes[$i]
@@ -302,8 +309,27 @@ function Invoke-IdentifyHat {
 }
 
 function Invoke-IdentifyButtons {
+    <#
+        Only asks about controls it does not already know. Re-running after a
+        catalogue correction should cost three presses, not twelve. -All forces
+        the whole walk.
+    #>
     param($Stick, $Map)
-    $buttons = Get-ControlsByKind 'Button'
+    $all = Get-ControlsByKind 'Button'
+    $buttons = @()
+    foreach ($c in $all) {
+        if ($All -or $null -eq (Get-MappedButtonIndex -Map $Map -ControlId $c.Id)) { $buttons += $c }
+    }
+    if ($buttons.Count -eq 0) {
+        Write-Section 'BUTTONS'
+        Write-Good 'Every button is already identified. Pass -All to redo them.'
+        return
+    }
+    if ($buttons.Count -lt $all.Count) {
+        Write-Section 'BUTTONS'
+        Write-Note ("$($all.Count - $buttons.Count) already known; asking about the remaining $($buttons.Count).")
+    }
+
     $i = 0
     while ($i -lt $buttons.Count) {
         $c = $buttons[$i]
@@ -428,7 +454,7 @@ function Show-DeviceMap {
 
 function Show-Coverage {
     param($Rows, $Profile)
-    $colours = @{ Bound = 'Gray'; Free = 'DarkGray'; NoInput = 'DarkYellow'; Unassigned = 'Yellow'; Unnamed = 'Red' }
+    $colours = @{ Bound = 'Gray'; Free = 'DarkGray'; NoInput = 'DarkYellow'; NeedsBind = 'Cyan'; Unassigned = 'Yellow'; Unnamed = 'Red' }
 
     foreach ($zone in @('Stick', 'Throttle', 'Base', 'Unknown', 'Other')) {
         $inZone = @($Rows | Where-Object { $_.Zone -eq $zone })
@@ -439,6 +465,7 @@ function Show-Coverage {
             if ($r.Status -eq 'Unassigned') { $what = 'NOTHING -- no job assigned' }
             if ($r.Status -eq 'Unnamed')    { $what = 'NOT IDENTIFIED -- run -Identify' }
             if ($r.Status -eq 'NoInput')    { $what = 'SENDS NO INPUT -- cannot be bound by anything' }
+            if ($r.Status -eq 'NeedsBind')  { $what = 'winmm cannot read it -- use -Bind with the token the game shows' }
             $tier = ''
             $job = Get-Job $r.JobId
             if ($job -and $job.Tier -eq 'B') { $tier = '  [unconfirmed]' }
@@ -972,6 +999,78 @@ function Show-AuditReport {
     Write-Note 'Next:  .\Hotas4.ps1 -Apply -ProfileName pilot'
 }
 
+function Invoke-Bind {
+    <#
+        Record a control's input token by hand.
+
+        winmm is a legacy shim over six axes. A control it cannot read is not
+        necessarily a control Reforger cannot read -- the game uses its own
+        input layer, and the Hotas 4's throttle rocker is exactly this case: it
+        works in joy.cpl, it moves none of winmm's six axes, and no amount of
+        measuring here will find it.
+
+        So: get the real token from the game, and tell the tool.
+
+            Reforger -> Settings -> Controls -> pick any helicopter action
+            -> move the control -> the game prints the token it sees
+
+            .\Hotas4.ps1 -Bind "ThrottleRocker=joystick0:axis6+"
+
+        That is authoritative in a way nothing this tool can do is.
+    #>
+    param([string[]] $Pairs)
+    Write-Title 'BIND' 'record a token this tool cannot measure'
+
+    $map = Get-Map
+    if (-not $map) { return 1 }
+
+    $bad = 0
+    foreach ($pair in $Pairs) {
+        if ($pair -notmatch '^\s*([A-Za-z0-9]+)\s*=\s*(\S+)\s*$') {
+            Write-Bad "cannot read '$pair' -- expected ControlId=token"
+            $bad++
+            continue
+        }
+        $id = $Matches[1]
+        $token = $Matches[2]
+
+        if (-not (Get-Control $id)) {
+            Write-Bad "no control called '$id'"
+            Write-Note ('known: ' + ((@($script:ControlCatalogue | ForEach-Object { $_.Id })) -join ', '))
+            $bad++
+            continue
+        }
+        if (-not (Test-InputToken $token)) {
+            Write-Bad "'$token' is not a token Reforger would write"
+            Write-Note 'expected joystick0:axisN+ , joystick0:buttonN , or joystick0:pov_up'
+            $bad++
+            continue
+        }
+
+        if ($token -match 'axis(\d)([+-])$') {
+            $map.Axes[$id] = @{ Index = [int]$Matches[1]; Sign = $Matches[2] }
+            Write-Good "$(Get-ControlLabel $id) -> $token"
+            Write-Note 'recorded by hand; this tool cannot verify it, the game can'
+        }
+        elseif ($token -match 'button(\d+)$') {
+            Set-MappedButton -Map $map -Index ([int]$Matches[1]) -ControlId $id
+            Write-Good "$(Get-ControlLabel $id) -> $token"
+        }
+        elseif ($token -match 'pov_') {
+            $map.Hat = $true
+            Write-Good "hat recorded"
+        }
+    }
+
+    if ($bad -gt 0) { Write-Host ''; Write-Warn "$bad entr(y/ies) rejected; nothing saved."; return 1 }
+
+    Export-DeviceMap -Map $map -Path $script:DeviceMapPath
+    Write-Host ''
+    Write-Good "saved -> $(Split-Path -Leaf $script:DeviceMapPath)"
+    Write-Note 'Next:  .\Hotas4.ps1 -Verify'
+    return 0
+}
+
 function Invoke-KeyTest {
     <#
         Diagnostic. Proves whether this console delivers keystrokes to the tool
@@ -1206,6 +1305,7 @@ elseif ($Apply)    { $exit = Invoke-Apply }
 elseif ($Show)     { $exit = Invoke-Show }
 elseif ($Verify)   { $exit = Invoke-Verify }
 elseif ($Watch)    { $exit = Invoke-Watch }
+elseif ($Bind)     { $exit = Invoke-Bind -Pairs $Bind }
 elseif ($Audit)    { $exit = Invoke-Audit }
 elseif ($KeyTest)  { $exit = Invoke-KeyTest }
 elseif ($CheckLog) { $exit = Invoke-CheckLog }
