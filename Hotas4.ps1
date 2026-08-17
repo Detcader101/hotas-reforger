@@ -43,7 +43,7 @@
     .\Hotas4.ps1 -Apply -ProfileName helicopter
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch] $Identify,
     [switch] $Apply,
