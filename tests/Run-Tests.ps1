@@ -52,7 +52,7 @@ function New-FakeMap {
     $map.Hat = $true
     # Twelve driver indices. StickR3 and ThrottleRocker are deliberately absent:
     # the rocker sends nothing on real hardware, and R3 is not yet confirmed.
-    $order = @('StickTrigger', 'StickTopLeft', 'StickTopRight', 'StickSide',
+    $order = @('StickTrigger', 'StickL1', 'StickL3', 'StickR3',
                'ThrottleFaceLeft', 'ThrottleFaceDown', 'ThrottleFaceRight', 'ThrottleFaceUp',
                'ThrottleR2', 'ThrottleL2', 'BaseLeft', 'BaseRight')
     for ($i = 0; $i -lt $order.Count; $i++) { $map.Buttons["$i"] = $order[$i] }
@@ -126,7 +126,7 @@ Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.
 Check 'each element is a control, not a nested array' ((@($axesDirect | ForEach-Object { $_.Id }) -contains 'AxisRoll'))
 
 $buttonsDirect = Get-ControlsByKind 'Button'
-Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 13) ("got $($buttonsDirect.Count)")
+Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 12) ("got $($buttonsDirect.Count)")
 
 $hatDirect = Get-ControlsByKind 'Hat'
 Check 'a single-element result is still an array' ($hatDirect.Count -eq 1 -and $hatDirect[0].Id -eq 'StickHat')
@@ -227,7 +227,7 @@ Check 'a hat the device has but identify never saw is a gap' (-not (Test-Coverag
 # generated preset leaves the trigger, the side button and both halves of the
 # throttle rocker doing nothing.
 $rows = Get-Coverage -Map (New-FakeMap) -Profile (Get-Profile 'helicopter') -ButtonCount 12 -HasHat $true
-foreach ($id in @('StickTrigger', 'StickSide', 'ThrottleR2', 'ThrottleL2')) {
+foreach ($id in @('StickTrigger', 'StickR3', 'ThrottleR2', 'ThrottleL2')) {
     $row = @($rows | Where-Object { $_.ControlId -eq $id })
     Check "$id is bound" ($row.Count -eq 1 -and $row[0].Status -eq 'Bound')
 }
@@ -323,7 +323,7 @@ Check 'a button maps to a control' ((Get-MappedButtonIndex -Map $m -ControlId 'S
 Set-MappedButton -Map $m -Index 7 -ControlId 'StickTrigger'
 Check 'remapping a control releases its old index' ($m.Buttons.Count -eq 1)
 Check 'remapping a control takes the new index' ((Get-MappedButtonIndex -Map $m -ControlId 'StickTrigger') -eq 7)
-Check 'an unmapped control has no index' ($null -eq (Get-MappedButtonIndex -Map $m -ControlId 'StickSide'))
+Check 'an unmapped control has no index' ($null -eq (Get-MappedButtonIndex -Map $m -ControlId 'StickR3'))
 Check 'unmapped indices are listed' ((Get-UnmappedButtonIndex -Map $m -ButtonCount 12).Count -eq 11)
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-test-{0}.json" -f [guid]::NewGuid())
@@ -536,7 +536,7 @@ Group 'Fill mode -- never move a binding the user already has'
 $existingBindings = @(
     @{ Action = 'HelicopterCyclicRight'; Sources = @(@{ Token = 'joystick0:axis0+'; Preset = 'right'; ControlId = 'AxisRoll' }) }
     @{ Action = 'HelicopterCyclicLeft';  Sources = @(@{ Token = 'joystick0:axis0-'; Preset = 'left';  ControlId = 'AxisRoll' }) }
-    @{ Action = 'VONChannel';            Sources = @(@{ Token = 'joystick0:button1';  Preset = 'hold';   ControlId = 'StickTopLeft' }) }
+    @{ Action = 'VONChannel';            Sources = @(@{ Token = 'joystick0:button1';  Preset = 'hold';   ControlId = 'StickL1' }) }
     @{ Action = 'HelicopterAutohoverToggle'; Sources = @(@{ Token = 'joystick0:button4'; Preset = 'click'; ControlId = 'ThrottleFaceLeft' }) }
     @{ Action = 'HelicopterWheelBrake';  Sources = @(@{ Token = 'joystick0:button5';  Preset = 'pressed'; ControlId = 'ThrottleFaceDown' }) }
     @{ Action = 'Freelook';              Sources = @(@{ Token = 'joystick0:button6';  Preset = 'hold';   ControlId = 'ThrottleFaceRight' }) }
@@ -551,7 +551,7 @@ $fillMap = New-FakeMap
 $fill = Resolve-FillBindings -Map $fillMap -Profile (Get-Profile 'helicopter') -Parsed $existing
 
 Check 'controls already in use are reported as untouched' `
-      (($fill.Untouched -contains 'StickTopLeft') -and ($fill.Untouched -contains 'AxisRoll') -and
+      (($fill.Untouched -contains 'StickL1') -and ($fill.Untouched -contains 'AxisRoll') -and
        ($fill.Untouched -contains 'StickHat'))
 
 $addedControls = @($fill.Add | ForEach-Object { $_.Sources } | ForEach-Object { $_.ControlId } | Sort-Object -Unique)
@@ -560,7 +560,7 @@ foreach ($id in $fill.Untouched) {
 }
 
 # The four the user actually complained about.
-foreach ($id in @('StickTrigger', 'StickSide', 'ThrottleR2', 'ThrottleL2')) {
+foreach ($id in @('StickTrigger', 'StickR3', 'ThrottleR2', 'ThrottleL2')) {
     Check "fill gives $id a job" ($addedControls -contains $id) ("added: " + ($addedControls -join ', '))
 }
 
@@ -574,7 +574,7 @@ Check 'fill emits no duplicate action names' `
 # A control whose profile job is taken must fall back, not be left dead. Map is
 # already on the base button here, so the top-right stick button has to get
 # something else rather than nothing.
-Check 'a control whose profile job is taken still gets one' ($addedControls -contains 'StickTopRight')
+Check 'a control whose profile job is taken still gets one' ($addedControls -contains 'StickL3')
 Check 'and it is not the job that was already taken' `
       ($addedActions -notcontains 'GadgetMap')
 
@@ -729,9 +729,9 @@ Check 'a helicopter and a turret action on one token is not' ((Get-BindingConfli
 
 $sameControl = @(
     @{ Action = 'Freelook'
-       Sources = @(@{ Token = 'joystick0:button1'; Preset = 'hold';  ControlId = 'StickSide' }) }
+       Sources = @(@{ Token = 'joystick0:button1'; Preset = 'hold';  ControlId = 'StickR3' }) }
     @{ Action = 'FreelookReset'
-       Sources = @(@{ Token = 'joystick0:button1'; Preset = 'click'; ControlId = 'StickSide' }) }
+       Sources = @(@{ Token = 'joystick0:button1'; Preset = 'click'; ControlId = 'StickR3' }) }
 )
 Check 'two actions one control deliberately stacks is not a conflict' ((Get-BindingConflict $sameControl).Count -eq 0)
 

@@ -264,18 +264,17 @@ $script:Profiles = @(
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'PerformAction'
-            StickTopLeft  = 'Von'
-            StickTopRight = 'SelectAction'
-            StickSide     = 'Freelook'
+            StickL1       = 'Von'
+            StickL3       = 'SelectAction'
+            StickR3       = 'Freelook'
 
             ThrottleFaceLeft  = 'Map'
             ThrottleFaceDown  = 'WheelBrake'
             ThrottleFaceRight = 'ParkingBrake'
             ThrottleFaceUp    = 'Autohover'
 
-            StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
-            ThrottleR2 = 'FreelookToggle'
+            ThrottleR2 = 'CameraType'
 
             # An analogue slider. Thrustmaster wire it as a second rudder
             # control alongside the twist grip, so that is what it does.
@@ -298,18 +297,17 @@ $script:Profiles = @(
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'TurretFireOnly'
-            StickTopLeft  = 'Von'
-            StickTopRight = 'Map'
-            StickSide     = 'Freelook'
+            StickL1       = 'Von'
+            StickL3       = 'Map'
+            StickR3       = 'Freelook'
 
             ThrottleFaceLeft  = 'SelectAction'
             ThrottleFaceDown  = 'WheelBrake'
             ThrottleFaceRight = 'CameraType'
             ThrottleFaceUp    = 'Autohover'
 
-            StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
-            ThrottleR2 = 'FreelookToggle'
+            ThrottleR2 = 'CameraType'
             ThrottleRocker = 'AntiTorque'
 
             BaseLeft  = 'EngineStart'
@@ -330,18 +328,17 @@ $script:Profiles = @(
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'Fire'
-            StickTopLeft  = 'Von'
-            StickTopRight = 'Map'
-            StickSide     = 'Freelook'
+            StickL1       = 'Von'
+            StickL3       = 'Map'
+            StickR3       = 'Freelook'
 
             ThrottleFaceLeft  = 'SelectAction'
             ThrottleFaceDown  = 'WheelBrake'
             ThrottleFaceRight = 'CameraType'
             ThrottleFaceUp    = 'Autohover'
 
-            StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
-            ThrottleR2 = 'FreelookToggle'
+            ThrottleR2 = 'CameraType'
             ThrottleRocker = 'AntiTorque'
 
             BaseLeft  = 'EngineStart'
@@ -362,16 +359,15 @@ $script:Profiles = @(
             StickHat     = 'FreelookHat'
 
             StickTrigger  = 'TurretFireOnly'
-            StickTopLeft  = 'Von'
-            StickTopRight = 'Map'
-            StickSide     = 'Freelook'
+            StickL1       = 'Von'
+            StickL3       = 'Map'
+            StickR3       = 'Freelook'
 
             ThrottleFaceLeft  = 'SelectAction'
             ThrottleFaceDown  = 'WheelBrake'
             ThrottleFaceRight = 'CameraType'
             ThrottleFaceUp    = 'Autohover'
 
-            StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
             ThrottleR2 = 'Free'
             ThrottleRocker = 'AntiTorque'

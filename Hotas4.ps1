@@ -1016,46 +1016,75 @@ function Invoke-KeyTest {
 }
 
 function Invoke-Watch {
-    Write-Title 'WATCH' 'move a control, see the token Reforger uses'
+    <#
+        Every axis is shown continuously, live, whether it moves or not. The
+        earlier version only printed an axis when it changed by more than 0.08,
+        which is no use at all for the question "does this control send
+        anything" -- an axis with little travel, or one you are not sure how to
+        actuate, just stays silent and looks identical to a dead one.
+    #>
+    Write-Title 'WATCH' 'live readout of every axis, button and hat'
     $stick = Resolve-Stick
     if (-not $stick) { return 1 }
     Write-Host ''
+    Write-Note 'Every axis is shown live. Move a control and watch the bars.'
+    Write-Note 'winmm exposes six axes: X Y Z then R U V. If a control moves NONE'
+    Write-Note 'of them, winmm cannot see it -- but Reforger uses its own input'
+    Write-Note 'layer and may still be able to. Check the game controls screen.'
     Write-Note 'Ctrl+C to stop.'
     Write-Host ''
 
     $prev = Read-Device $stick.Id
     if (-not $prev) { Write-Bad 'Cannot read the device.'; return 1 }
     $prevHat = $prev.Hat
+    $peak = New-Object double[] 6
+    foreach ($i in 0..5) { $peak[$i] = 0 }
+    $map = Get-Map -Quiet
+    $lastButton = '    (no button pressed yet)'
+    $lastHat    = '    (hat not moved yet)'
+
+    # winmm field per Reforger axis index, so a reading can be traced back to
+    # what Windows itself calls the axis.
+    $fieldOf = @{ 0 = 'X'; 1 = 'Y'; 2 = 'Z'; 3 = 'U'; 4 = 'V'; 5 = 'R' }
+    $top = [Console]::CursorTop
 
     while ($true) {
         $now = Read-Device $stick.Id
         if (-not $now) { Start-Sleep -Milliseconds 250; continue }
 
+        [Console]::SetCursorPosition(0, $top)
         foreach ($i in 0..5) {
-            if ([math]::Abs($now.Axes[$i] - $prev.Axes[$i]) -lt 0.08) { continue }
-            $sign = '+'
-            if ($now.Axes[$i] -lt 0) { $sign = '-' }
-            Write-Host ('    ' + "axis$i".PadRight(10)) -NoNewline -ForegroundColor DarkGray
-            Write-Host ((Get-AxisBar $now.Axes[$i]) + ('{0,7:N2}' -f $now.Axes[$i]) + "   joystick0:axis$i$sign") -ForegroundColor Gray
-            $prev.Axes[$i] = $now.Axes[$i]
+            $v = $now.Axes[$i]
+            $moved = [math]::Abs($v - $prev.Axes[$i])
+            if ($moved -gt $peak[$i]) { $peak[$i] = $moved }
+            $colour = 'DarkGray'
+            if ($peak[$i] -gt 0.1) { $colour = 'Green' }
+            $line = '    axis{0} ({1})  {2} {3,7:N2}   moved so far: {4,5:N2}' -f `
+                    $i, $fieldOf[$i], (Get-AxisBar $v), $v, $peak[$i]
+            Write-Host $line.PadRight(78) -ForegroundColor $colour
         }
+        foreach ($i in 0..5) { $prev.Axes[$i] = $now.Axes[$i] }
+        Write-Host ''.PadRight(78)
 
+        # Buttons and hat go on fixed lines rather than scrolling, so the axis
+        # bars above them stay put and stay readable while you work.
         foreach ($i in (Get-PressedButton -Before $prev.Buttons -Now $now.Buttons)) {
             $label = 'not identified'
-            $map = Get-Map -Quiet
             if ($map -and $map.Buttons.ContainsKey("$i")) { $label = Get-ControlLabel $map.Buttons["$i"] }
-            Write-Host ('    ' + "button$i".PadRight(10)) -NoNewline -ForegroundColor DarkGray
-            Write-Host ($label.PadRight(30) + "joystick0:button$i") -ForegroundColor Green
+            $lastButton = '    button{0,-3} {1,-28} joystick0:button{0}' -f $i, $label
         }
         $prev.Buttons = $now.Buttons
 
         if ($now.Hat -ne $prevHat) {
-            foreach ($d in (Get-HatNames $now.Hat)) {
-                Write-Host ('    ' + 'hat'.PadRight(10)) -NoNewline -ForegroundColor DarkGray
-                Write-Host ("$d".PadRight(30) + "joystick0:pov_$d") -ForegroundColor Cyan
+            $names = Get-HatNames $now.Hat
+            if ($names.Count -gt 0) {
+                $lastHat = '    hat        {0,-28} joystick0:pov_{1}' -f ($names -join ' + '), $names[0]
             }
             $prevHat = $now.Hat
         }
+
+        Write-Host $lastButton.PadRight(78) -ForegroundColor Green
+        Write-Host $lastHat.PadRight(78) -ForegroundColor Cyan
 
         Start-Sleep -Milliseconds 40
     }

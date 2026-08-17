@@ -73,15 +73,21 @@ function Set-AuditResult {
     $State.Results[$Id] = @{ Status = $Status; Token = $Token }
 }
 
-# Letters a.. in catalogue order. The catalogue is 17 controls, so this never
-# runs past 'q' on a Hotas 4, but it degrades to numbers if a bigger stick is
-# ever described here.
+# Keys the audit menu itself uses. A control must never be given one of these:
+# assigning 'q' to an axis meant pressing it quit the program instead of testing
+# that axis, because the menu checks its own commands first.
+$script:AuditReservedKeys = @('q', 'r', 't', 'w', 'x')
+
 function Get-AuditKeyMap {
+    <# A letter per control, skipping the menu's own commands. #>
     $map = [ordered]@{}
-    $letters = 'abcdefghijklmnopqrstuvwxyz'.ToCharArray()
+    $pool = @()
+    foreach ($ch in 'abcdefghijklmnopqrstuvwxyz'.ToCharArray()) {
+        if ($script:AuditReservedKeys -notcontains "$ch") { $pool += "$ch" }
+    }
     $i = 0
     foreach ($c in $script:ControlCatalogue) {
-        if ($i -lt $letters.Count) { $map["$($letters[$i])"] = $c.Id }
+        if ($i -lt $pool.Count) { $map[$pool[$i]] = $c.Id }
         $i++
     }
     return $map

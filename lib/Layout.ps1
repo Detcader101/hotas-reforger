@@ -44,23 +44,23 @@ $script:ControlCatalogue = @(
        Fill  = @('TurretFireOnly', 'Fire')
        Where = 'the trigger on the front of the grip, under your index finger' }
 
-    @{ Id = 'StickTopLeft';   Zone = 'Stick'; Kind = 'Button'
-       Label = 'Stick top - left'
-       Where = 'the left-hand button on the top of the stick head' }
+    # The stick carries FOUR buttons and one hat. That is the whole of it.
+    # Earlier versions of this file invented a "stick top - left", a "stick top -
+    # right" and a "side face button" from product photographs, none of which
+    # exist under those names. The buttons are labelled L1, L3 and R3.
+    @{ Id = 'StickL1'; Zone = 'Stick'; Kind = 'Button'; Ps4 = 'L1'
+       Label = 'L1 face button'
+       Fill  = @('Von', 'SelectAction')
+       Where = 'the button marked L1 on the stick' }
 
-    @{ Id = 'StickTopRight';  Zone = 'Stick'; Kind = 'Button'
-       Label = 'Stick top - right'
+    @{ Id = 'StickL3'; Zone = 'Stick'; Kind = 'Button'; Ps4 = 'L3'
+       Label = 'L3 face button'
        Fill  = @('SelectAction', 'CameraType')
-       Where = 'the right-hand button on the top of the stick head' }
+       Where = 'the button marked L3 on the stick' }
 
-    @{ Id = 'StickSide';      Zone = 'Stick'; Kind = 'Button'
-       Label = 'Side face button'
-       Fill  = @('Freelook', 'CameraType', 'FreelookToggle')
-       Where = 'the large button on the side face of the grip, under your thumb' }
-
-    @{ Id = 'StickR3';        Zone = 'Stick'; Kind = 'Button'; Ps4 = 'R3'
-       Label = 'Stick R3 button'
-       Fill  = @('CameraType', 'FreelookToggle')
+    @{ Id = 'StickR3'; Zone = 'Stick'; Kind = 'Button'; Ps4 = 'R3'
+       Label = 'R3 face button'
+       Fill  = @('Freelook', 'CameraType')
        Where = 'the button marked R3 on the stick' }
 
     # One hat, on the stick head. There is no second hat on this unit.
