@@ -62,6 +62,7 @@ param(
     [string] $ConfigName,
     [switch] $DryRun,
     [switch] $Replace,
+    [switch] $Repair,
     [switch] $All,
     [string[]] $Bind,
     [switch] $Force
@@ -708,6 +709,105 @@ function Write-AxisWarning {
     }
 }
 
+function Invoke-ApplyRepair {
+    <#
+        Fill the empty controls, replace the ones bound to something inert in
+        this seat, and leave everything that already works exactly where it is.
+    #>
+    param($Stick, $Map, $Profile, $Parsed, [string] $Installed, [string] $Seat)
+
+    $r = Resolve-RepairBindings -Map $Map -Profile $Profile -Parsed $Parsed -Seat $Seat
+
+    Write-Host ''
+    Write-Section 'WORKING ALREADY -- NOT TOUCHED'
+    foreach ($id in ($r.Untouched | Sort-Object)) {
+        $token = '-'
+        $idx = Get-MappedButtonIndex -Map $Map -ControlId $id
+        if ($null -ne $idx) { $token = "button$idx" }
+        elseif ($id -eq 'StickHat') { $token = 'pov' }
+        elseif ($Map.Axes.ContainsKey($id)) { $token = "axis$($Map.Axes[$id].Index)" }
+        Write-Field $token (Get-ControlLabel $id) 'DarkGray'
+    }
+
+    if ($r.Repaired.Count -gt 0) {
+        Write-Host ''
+        Write-Section "DOES NOTHING IN THE $($Seat.ToUpper()) SEAT -- REPLACED"
+        foreach ($id in $r.Repaired) {
+            Write-Field (Get-ControlLabel $id) '' 'Yellow' 30
+        }
+        Write-Note ('dropping: ' + ($r.Remove -join ', '))
+    }
+
+    if ($r.Add.Count -eq 0) {
+        Write-Host ''
+        Write-Good "Nothing to change. Every control already works in the $Seat seat."
+        return 0
+    }
+
+    Write-Host ''
+    Write-Section 'WILL NOW DO'
+    foreach ($id in $r.Chosen.Keys) {
+        $job = Get-Job $r.Chosen[$id]
+        $token = '-'
+        $idx = Get-MappedButtonIndex -Map $Map -ControlId $id
+        if ($null -ne $idx) { $token = "button$idx" }
+        elseif ($Map.Axes.ContainsKey($id)) { $token = "axis$($Map.Axes[$id].Index)" }
+        $tier = ''
+        if ($job.Tier -eq 'B') { $tier = '   [unconfirmed]' }
+        Write-Host ('    ' + $token.PadRight(10)) -NoNewline -ForegroundColor DarkGray
+        Write-Host ((Get-ControlLabel $id).PadRight(26)) -NoNewline -ForegroundColor DarkCyan
+        Write-Host ($job.Label + $tier) -ForegroundColor Green
+        Write-Note ("            " + $job.Desc)
+        if (Get-Opt $job 'Hazard' $false) {
+            Write-Warn ("            " + (Get-Opt $job 'Hazard_Note' 'This one can bite.'))
+        }
+    }
+    if ($r.Unfillable.Count -gt 0) {
+        Write-Host ''
+        Write-Warn ('no action left for: ' + (($r.Unfillable | ForEach-Object { Get-ControlLabel $_ }) -join ', '))
+    }
+
+    $preserve = @()
+    foreach ($name in $r.Pruned.Actions.Keys) { $preserve += $r.Pruned.Raw[$name] }
+    $text = Build-Config -Bindings $r.Add -Preserve $preserve
+
+    $problems = Test-Config $text
+    if ($problems.Count -gt 0) {
+        Write-Host ''
+        Write-Bad 'The generated config is malformed. Nothing was written.'
+        foreach ($p in $problems) { Write-Bad "  $p" }
+        return 1
+    }
+
+    Write-AxisWarning -Stick $Stick -Map $Map -Profile $Profile -Bindings $r.Add
+
+    Write-Host ''
+    Write-Section 'SUMMARY'
+    Write-Field 'to' $Installed
+    Write-Field 'left alone' "$($r.Untouched.Count) control(s)"
+    Write-Field 'replaced' "$($r.Repaired.Count) control(s)"
+    Write-Field 'actions added' "$($r.Add.Count)"
+    Write-Field 'actions dropped' "$($r.Remove.Count)"
+    Write-Field 'validation' 'passed' 'Green'
+
+    if ($DryRun) { Write-Host ''; Write-Note '-DryRun: nothing written.'; return 0 }
+    if (-not $Force -and -not (Confirm-Action 'Apply this?')) { Write-Note 'Nothing written.'; return 0 }
+
+    Backup-Installed -Installed $Installed
+    Set-Content -Path $Installed -Value $text -Encoding UTF8 -NoNewline
+
+    $afterProblems = Test-Config (Get-Content -Raw $Installed)
+    if ($afterProblems.Count -gt 0) {
+        Write-Bad 'The file on disk does not validate after writing:'
+        foreach ($p in $afterProblems) { Write-Bad "  $p" }
+        return 1
+    }
+    Write-Good 'written and verified'
+    Write-Host ''
+    Write-Note 'Start Reforger, then run  .\Hotas4.ps1 -CheckLog'
+    return 0
+}
+
 function Backup-Installed {
     param([string] $Installed)
     if (-not (Test-Path $Installed)) { return }
@@ -735,6 +835,12 @@ function Invoke-Apply {
     $dir = Get-InputConfigDir
     $installed = Join-Path $dir (Get-ConfigFileName $stick)
     $parsed = Read-Config $installed
+
+    # -Repair also replaces bindings that are inert in the profile's seat.
+    if ($Repair -and $parsed.Actions.Count -gt 0) {
+        $seat = Get-Opt $profile 'Seat' 'Pilot'
+        return (Invoke-ApplyRepair -Stick $stick -Map $map -Profile $profile -Parsed $parsed -Installed $installed -Seat $seat)
+    }
 
     # FILL is the default. Replace only on request, because replacing moves
     # bindings the user already has in their hands.

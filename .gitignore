@@ -8,3 +8,6 @@ device-audit.json
 backups/
 
 *.log
+
+# Needs `gh auth refresh -h github.com -s workflow` before it can be pushed.
+.github/

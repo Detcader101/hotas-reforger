@@ -795,8 +795,11 @@ function Get-BoundControl {
 # a throttle button then that stick button gets nothing -- which is exactly the
 # complaint this whole tool exists to answer.
 $script:FillOrder = @('TurretFireOnly', 'TurretReloadOnly', 'TurretNextWeaponOnly',
-                      'CameraType', 'SelectAction', 'Sights', 'FreelookToggle',
-                      'Zoom', 'Horn', 'Lights')
+                      'CameraType', 'SelectAction', 'VonDirectHold', 'Sights',
+                      'FreelookToggle', 'Zoom', 'Horn', 'Lights',
+                      # Last, and flagged when it lands: an engine cut on a
+                      # button you can brush is an engine cut in the air.
+                      'EngineStop')
 
 function Resolve-FillBindings {
     <#
@@ -808,7 +811,7 @@ function Resolve-FillBindings {
         existing one is the user's, so it wins. When a control's profile job is
         taken, it falls back through FillOrder rather than being left dead.
     #>
-    param($Map, $Profile, $Parsed, [string] $Prefix = 'joystick0')
+    param($Map, $Profile, $Parsed, [string] $Prefix = 'joystick0', [string] $Seat = '')
 
     $bound = Get-BoundControl -Map $Map -Parsed $Parsed
 
@@ -835,6 +838,13 @@ function Resolve-FillBindings {
             if ($jobId -eq 'Free' -or -not $jobId) { continue }
             $job = Get-Job $jobId
             if (-not $job -or $job.Kind -ne $c.Kind) { continue }
+
+            # Filling a dead control with something equally dead in this seat is
+            # not a fix. The fallback list is ordered by usefulness, not by seat,
+            # so without this the throttle can be handed turret sights while you
+            # are flying -- which is the exact failure this tool exists to catch.
+            if ($Seat -and -not (Test-JobLiveInSeat -Job $job -Seat $Seat)) { continue }
+
             $clash = $false
             foreach ($n in (Get-JobActionNames $job)) { if ($taken.ContainsKey($n)) { $clash = $true } }
             if ($clash) { continue }
@@ -851,7 +861,135 @@ function Resolve-FillBindings {
 
     $add = Resolve-Bindings -Map $Map -Profile $working -Prefix $Prefix -SkipControls $bound
 
-    return @{ Add = $add; Untouched = $bound; Chosen = $chosen; Unfillable = $unfillable }
+    # An action can legitimately be produced here AND already exist in the file:
+    # the throttle rocker and the twist grip both drive anti-torque, and the
+    # twist is already bound. Two Action blocks of one name is invalid, so the
+    # sources are merged onto one block and the original is dropped from the
+    # preserved set by the caller. That is how the second rudder gets added
+    # without disturbing the first.
+    $merged = @()
+    foreach ($b in $add) {
+        if (-not $Parsed.Actions.Contains($b.Action)) { $merged += $b; continue }
+        $sources = @($b.Sources)
+        foreach ($old in $Parsed.Actions[$b.Action]) {
+            $dupe = $false
+            foreach ($s in $sources) { if ($s.Token -eq $old.Token) { $dupe = $true } }
+            if (-not $dupe) {
+                $sources += @{ Token = $old.Token; Preset = $old.Preset; SingleClick = $false; ControlId = '' }
+            }
+        }
+        $merged += @{ Action = $b.Action; Sources = $sources }
+    }
+
+    $collided = @($merged | Where-Object { $Parsed.Actions.Contains($_.Action) } | ForEach-Object { $_.Action })
+
+    return @{ Add = $merged; Untouched = $bound; Chosen = $chosen
+              Unfillable = $unfillable; Merged = $collided }
+}
+
+function Get-ActionContextMap {
+    <# action name -> the context it lives in, across every job. #>
+    $m = @{}
+    foreach ($j in $script:Jobs) {
+        foreach ($k in @('Actions', 'Pos', 'Neg')) {
+            foreach ($a in @(Get-Opt $j $k @())) { $m[$a.Name] = $a.Context }
+        }
+    }
+    return $m
+}
+
+function Get-DeadBoundControl {
+    <#
+        Controls that ARE bound and whose every binding is inert in this seat.
+
+        This is the gap between "bound" and "working" made actionable. A config
+        can be entirely valid, pass the completeness audit, and still leave four
+        buttons doing nothing because they carry turret actions and you are
+        flying. Those controls need repairing, not filling -- filling only ever
+        looks at controls with nothing on them at all.
+
+        A control carrying an action no job here knows about is NEVER reported:
+        that is a mod's binding, or one from a newer build, and guessing that it
+        is dead would delete something working.
+    #>
+    param($Map, $Parsed, [string] $Seat)
+
+    $ctx = Get-ActionContextMap
+    $byControl = @{}
+
+    foreach ($name in $Parsed.Actions.Keys) {
+        foreach ($src in $Parsed.Actions[$name]) {
+            $id = ConvertFrom-InputToken -Map $Map -Token $src.Token
+            if (-not $id) { continue }
+            if (-not $byControl.ContainsKey($id)) { $byControl[$id] = @() }
+            $byControl[$id] += $name
+        }
+    }
+
+    $dead = @()
+    foreach ($id in $byControl.Keys) {
+        $known = @($byControl[$id] | Where-Object { $ctx.ContainsKey($_) })
+        if ($known.Count -eq 0) { continue }                       # nothing we understand
+        if ($known.Count -ne @($byControl[$id]).Count) { continue } # partly unknown: leave it
+
+        $live = @($known | Where-Object {
+            $c = $ctx[$_]
+            if ($c -eq 'Global') { return $true }
+            switch ($Seat) {
+                'Pilot'  { return ($c -eq 'Helicopter') }
+                'Gunner' { return ($c -eq 'Turret') }
+                'Foot'   { return ($c -eq 'Character') }
+                'Driver' { return ($c -eq 'Vehicle') }
+            }
+            return $true
+        })
+        if ($live.Count -eq 0) { $dead += @{ ControlId = $id; Actions = @($byControl[$id]) } }
+    }
+    return ,$dead
+}
+
+function Resolve-RepairBindings {
+    <#
+        Fill the empty controls AND replace the ones that are bound to something
+        inert in this seat. Everything else is left exactly as it is.
+
+        Returns the actions to add, and the action names to drop -- the dead
+        ones, which have to come out of the file rather than be preserved
+        alongside their replacements.
+    #>
+    param($Map, $Profile, $Parsed, [string] $Seat, [string] $Prefix = 'joystick0')
+
+    $deadControls = Get-DeadBoundControl -Map $Map -Parsed $Parsed -Seat $Seat
+    $deadIds = @($deadControls | ForEach-Object { $_.ControlId })
+    $remove = @($deadControls | ForEach-Object { $_.Actions } | Sort-Object -Unique)
+
+    # Pretend the dead controls are unbound, and pretend their actions were
+    # never in the file, so the fill logic can reassign them freely.
+    $pruned = @{ Actions = [ordered]@{}; Raw = @{}; Text = $Parsed.Text }
+    foreach ($n in $Parsed.Actions.Keys) {
+        if ($remove -contains $n) { continue }
+        $pruned.Actions[$n] = $Parsed.Actions[$n]
+        $pruned.Raw[$n] = $Parsed.Raw[$n]
+    }
+
+    $fill = Resolve-FillBindings -Map $Map -Profile $Profile -Parsed $pruned -Prefix $Prefix -Seat $Seat
+
+    # An action merged with an existing block must not ALSO be preserved from
+    # that block, or the file ends up declaring it twice.
+    foreach ($name in @($fill.Merged)) {
+        if ($pruned.Actions.Contains($name)) { $pruned.Actions.Remove($name); $pruned.Raw.Remove($name) }
+    }
+
+    return @{
+        Add        = $fill.Add
+        Chosen     = $fill.Chosen
+        Remove     = $remove
+        Merged     = @($fill.Merged)
+        Repaired   = $deadIds
+        Untouched  = @($fill.Untouched | Where-Object { $deadIds -notcontains $_ })
+        Unfillable = $fill.Unfillable
+        Pruned     = $pruned
+    }
 }
 
 function Get-UnknownActionBlock {

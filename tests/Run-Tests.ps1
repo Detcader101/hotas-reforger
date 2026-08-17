@@ -628,6 +628,78 @@ Check 'a config with nothing dead adds nothing' ($noGaps.Add.Count -eq 0) `
 Remove-Item $existingPath, $filledPath, $everythingPath -Force
 
 # =============================================================================
+Group 'Repair -- replace what is inert in this seat, keep what works'
+# =============================================================================
+#
+# The failure this answers: a valid config, no engine errors, completeness
+# reporting 18 of 18, and four buttons doing nothing because they carry turret
+# actions while you are flying. Fill cannot see those -- they are bound.
+
+$mixedBindings = @(
+    @{ Action = 'HelicopterAutohoverToggle'; Sources = @(@{ Token = 'joystick0:button4'; Preset = 'click'; ControlId = 'ThrottleFaceLeft' }) }
+    @{ Action = 'GadgetMap';                 Sources = @(@{ Token = 'joystick0:button10'; Preset = 'select'; ControlId = 'BaseLeft' }) }
+    @{ Action = 'TurretFire';                Sources = @(@{ Token = 'joystick0:button0'; Preset = 'hold'; ControlId = 'StickTrigger' }) }
+    @{ Action = 'TurretReload';              Sources = @(@{ Token = 'joystick0:button8'; Preset = 'click'; ControlId = 'ThrottleR2' }) }
+    @{ Action = 'SomeModAction';             Sources = @(@{ Token = 'joystick0:button9'; Preset = 'click'; ControlId = 'ThrottleL2' }) }
+)
+$mixedPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-mixed-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $mixedPath -Value (Build-Config -Bindings $mixedBindings) -Encoding UTF8 -NoNewline
+$mixed = Read-Config $mixedPath
+
+$deadInSeat = Get-DeadBoundControl -Map (New-FakeMap) -Parsed $mixed -Seat 'Pilot'
+$deadIds = @($deadInSeat | ForEach-Object { $_.ControlId })
+
+Check 'a turret action bound while flying is found' ($deadIds -contains 'StickTrigger')
+Check 'so is a second one' ($deadIds -contains 'ThrottleR2')
+Check 'a helicopter action is left alone' ($deadIds -notcontains 'ThrottleFaceLeft')
+Check 'a global action is left alone' ($deadIds -notcontains 'BaseLeft')
+
+# The most important one: never delete a binding we do not understand.
+Check 'an action from a mod is never called dead' ($deadIds -notcontains 'ThrottleL2') `
+      ("flagged: " + ($deadIds -join ', '))
+
+$rep = Resolve-RepairBindings -Map (New-FakeMap) -Profile (Get-Profile 'pilot') -Parsed $mixed -Seat 'Pilot'
+Check 'the dead actions are dropped' (($rep.Remove -contains 'TurretFire') -and ($rep.Remove -contains 'TurretReload'))
+Check 'the working ones are not' (($rep.Remove -notcontains 'GadgetMap') -and ($rep.Remove -notcontains 'SomeModAction'))
+
+$repText = Build-Config -Bindings $rep.Add -Preserve @($rep.Pruned.Actions.Keys | ForEach-Object { $rep.Pruned.Raw[$_] })
+Check 'the repaired config validates' ((Test-Config $repText).Count -eq 0) ((Test-Config $repText) -join '; ')
+Check 'the mod action survives repair' ($repText -match 'SomeModAction')
+Check 'no turret action survives repair' ($repText -notmatch 'Action TurretFire ')
+
+# Every replacement must itself be live in the seat, or the repair is theatre.
+$ctxMap = Get-ActionContextMap
+$stillDead = @()
+foreach ($id in $rep.Chosen.Keys) {
+    $job = Get-Job $rep.Chosen[$id]
+    if (-not (Test-JobLiveInSeat -Job $job -Seat 'Pilot')) { $stillDead += "$id -> $($job.Id)" }
+}
+Check 'every replacement is live in the pilot seat' ($stillDead.Count -eq 0) ($stillDead -join ', ')
+
+# The rocker shares anti-torque with the twist grip, which is already bound, so
+# it has to merge onto that action rather than declare it a second time.
+$dualBindings = @(
+    @{ Action = 'HelicopterAntiTorqueRight'; Sources = @(@{ Token = 'joystick0:axis5+'; Preset = 'right'; ControlId = 'AxisTwist' }) }
+    @{ Action = 'HelicopterAntiTorqueLeft';  Sources = @(@{ Token = 'joystick0:axis5-'; Preset = 'left';  ControlId = 'AxisTwist' }) }
+)
+$dualPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-dual-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $dualPath -Value (Build-Config -Bindings $dualBindings) -Encoding UTF8 -NoNewline
+$dual = Read-Config $dualPath
+
+$dualMap = New-DeviceMap
+$dualMap.Axes['AxisTwist']      = @{ Index = 5; Sign = '+' }
+$dualMap.Axes['ThrottleRocker'] = @{ Index = 4; Sign = '+' }
+$dualFill = Resolve-FillBindings -Map $dualMap -Profile (Get-Profile 'pilot') -Parsed $dual -Seat 'Pilot'
+$dualText = Build-Config -Bindings $dualFill.Add -Preserve @()
+Check 'adding a second rudder does not declare the action twice' ((Test-Config $dualText).Count -eq 0) `
+      ((Test-Config $dualText) -join '; ')
+$dualRight = @($dualFill.Add | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
+Check 'and it carries both the twist and the rocker' (@($dualRight.Sources).Count -eq 2) `
+      ((@($dualRight.Sources | ForEach-Object { $_.Token })) -join ',')
+
+Remove-Item $mixedPath, $dualPath -Force
+
+# =============================================================================
 Group 'Validation catches malformed files'
 # =============================================================================
 
