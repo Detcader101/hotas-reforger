@@ -255,7 +255,7 @@ function Wait-Control {
     param(
         [uint32]   $Id,
         [string]   $Accept = 'Any',
-        [string[]] $Keys = @('s', 'b', 'q', 'u'),
+        [string[]] $Keys = @('s', 'b', 'q'),
         [int]      $TimeoutMs = 60000,
         [scriptblock] $OnTick
     )
