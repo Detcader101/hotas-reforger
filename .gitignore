@@ -1,0 +1,4 @@
+backup-*.conf
+hotas-controls.json
+device-map.json
+*.log
