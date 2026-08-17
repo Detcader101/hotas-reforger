@@ -1,244 +1,231 @@
-# Arma Reforger — T.Flight Hotas 4 config
+# hotas-reforger
 
-Device confirmed on this PC: **VID 0x044F / PID 0xB67C** — T.Flight Hotas 4 in **PC mode**,
-reporting **6 axes, 12 buttons, 1 POV hat**. (PID `B67B` also appears in the registry — that's
-the same stick in PS4 mode. Keep the base switch on **PC**, or Reforger won't see it properly.)
+Bind **every** control on a Thrustmaster T.Flight Hotas 4 in Arma Reforger.
 
-## Files here
+Reforger generates its own joystick preset the first time it sees the stick.
+That preset works, and it leaves your trigger, your side thumb button and both
+halves of the throttle rocker doing nothing at all. This writes a config where
+every button, the hat and all four live axes have a job — or says, in as many
+words, which ones you chose to leave alone.
 
-| File | What it is |
-|---|---|
-| **`Bind-Hotas.ps1`** | **The binding wizard. Start here.** |
-| `Check-HotasLog.ps1` | Reads Reforger's log, tells you if the engine accepted every binding. |
-| `Test-Hotas.ps1` | Raw live reader — which physical control is which index. |
-| `Joystick_TFlightHotas4_0.conf` | Current config. Also installed (see path below). |
-| `Joystick_TFlightHotas4_0.STOCK.conf` | Reforger's own auto-generated preset. Revert copy. |
-| `backup-<timestamp>-*.conf` | Written automatically every time the wizard saves. |
+Windows only. Windows PowerShell 5.1 or PowerShell 7. No install, no
+dependencies, no drivers beyond Thrustmaster's own.
 
-## The wizard
+---
+
+## Quick start
 
 ```powershell
-cd C:\Users\jayja\hotas-reforger
-powershell -ExecutionPolicy Bypass -File .\Bind-Hotas.ps1
+cd hotas-reforger
+powershell -ExecutionPolicy Bypass -File .\Hotas4.ps1 -Identify   # once, ~1 min
+powershell -ExecutionPolicy Bypass -File .\Hotas4.ps1 -Apply
 ```
 
-**Close Reforger first.** The game rewrites the config on exit, so anything saved
-while it's running gets thrown away. The wizard checks and warns you.
+Or double-click `Hotas4.cmd` for a menu.
 
-Three modes:
+**Close Reforger first.** It rewrites this file when it exits, so anything
+written while it is running is silently thrown away. The tool checks and warns.
 
-- **Change a few bindings** — pick individual actions off a list. This is the one
-  you want for a tweak or two.
-- **Full wizard** — all 21 steps from the top.
-- **Show current bindings** — read-only.
+Set the switch on the throttle base to **PC**, not PS4. In PS4 mode the stick
+enumerates as a different device (PID `B67B` instead of `B67C`) and reports a
+different control set.
 
-Per step: `Enter` keeps what's there, `s` skips, `b` goes back, `u` unbinds,
-`q` quits. Nothing is written to disk until you confirm at the end.
+---
 
-### Things it does for you
+## Why it is built control-first
 
-**Direction is worked out, not guessed.** It asks you to *raise the collective*, not
-to "move an axis". Whichever way the axis actually travels becomes "up", and the
-opposite becomes "down". Same for cyclic, rudder and turret. An inverted throttle
-is not possible.
+The obvious way to write a binding tool is to walk the game's list of actions
+and ask which button you want for each. That is what the previous version of
+this did, and it is why the trigger ended up unbound: you can get to the end of
+the action list without the tool ever having mentioned a control you own.
 
-**Conflicts are context-aware.** Cyclic and turret aim share the stick and that's
-correct — they never apply in the same seat. The wizard only warns when two
-actions collide in the *same* context.
+So this walks the *hardware*. There are two layers, kept apart:
 
-**Engine stop is flagged.** It'll bind it if you insist, but it tells you first
-why putting an engine cut on a button you might brush is a bad idea.
-
-**Validation before write.** Brace balance, duplicate IDs, duplicate action blocks.
-If the generated file is malformed it refuses to write and leaves your config alone.
-After writing it reads the file back and re-parses it.
-
-**Bindings it doesn't know about are preserved.** If a mod adds an action and it
-ends up in your config, the wizard keeps the block verbatim rather than dropping it.
-
-### Verified vs unconfirmed action names
-
-Reforger doesn't publish a list of bindable actions, and the game data is packed,
-so the catalogue is built from two sources:
-
-- **Confirmed** — names the game itself wrote into its own generated preset, or that
-  we've watched the engine accept. Everything flight- and gunner-related is here.
-- **Unconfirmed** — names pulled out of `ArmaReforgerSteam.exe` that read
-  unambiguously as input actions, but which we haven't yet seen Reforger consume.
-  Currently just engine start/stop. The wizard marks these in yellow.
-
-After a launch, confirm the unconfirmed ones:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Check-HotasLog.ps1
-```
-
-"No input errors" means the engine took every binding. It knows to ignore
-`ForceFeedback effect failed to create` — that's just the stick having no
-force-feedback motor.
-
-### Tests
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\Bind-Hotas.ps1 -SelfTest
-```
-
-**92 checks, no joystick required, nothing written.** Run this after any edit.
-Exit code is 0 on success, 1 on any failure, so it drops straight into CI later.
-
-Two layers:
-
-**Unit** — catalogue integrity, button bit masks across all 32 bits, axis and
-button detection driven with synthetic readings, the input-token grammar, the
-structural validator's ability to catch each kind of malformation, config
-generation, parse round-tripping, preservation of unknown actions, and config
-filename resolution.
-
-**Integration** — the real listen loop fed a fake device (button press, button 0,
-axis positive, axis negative, hat, unplugged mid-step, every keyboard escape),
-then the whole binding flow with the loop stubbed (full run, skip-all, unbind,
-quit, back at the first step, redo, colliding bindings). The last check hashes
-your live config before and after and asserts the suite never touched it.
-
-The one thing tests can't cover is the physical read itself — whether *your*
-throttle is the axis the driver says it is. That's what the wizard asking you to
-move a specific control is for.
-
-## Making this work for other sticks
-
-Most of it is already device-agnostic. What's generic:
-
-- Axis and button detection, and the winmm → Reforger index mapping
-- The action catalogue — nothing in it is Thrustmaster-specific
-- Direction inference, so any stick's axis polarity sorts itself out
-- Config filename: auto-detected from `Joystick_*.conf` in the profile folder,
-  so another stick's file is picked up without an argument. Override with
-  `-ConfigName`.
-
-What would still need work:
-
-- `Get-Stick` prefers Thrustmaster's vendor ID (`0x044F`) and otherwise takes the
-  first stick found. A picker would be needed for someone with a stick *and*
-  pedals *and* a throttle quadrant as separate devices.
-- Multi-device configs. Reforger writes one file per device and tokens are
-  `joystick0:` / `joystick1:`; the wizard assumes `joystick0` throughout.
-- The `axis3`/`axis4` (U/V) mapping is inferred, not confirmed. It doesn't matter
-  on a Hotas 4 because nothing uses them, but a stick with six live axes would
-  want that verified against Reforger's rebinding screen first.
-
-## Installed to
-
-```
-C:\Users\jayja\Documents\My Games\ArmaReforger\profile\.save\settings\customInputConfigs\Joystick_TFlightHotas4_0.conf
-```
-
-Edit it with the game **closed**. Reforger rewrites this file when you rebind in-game,
-so anything you change by hand while it's running will be lost.
-
-**To revert:** copy `Joystick_TFlightHotas4_0.STOCK.conf` over the installed file and rename it.
-
-## Bindings
-
-### Axes
-
-| Axis | Action | Notes |
+| Layer | Maps | Where it comes from |
 |---|---|---|
-| `axis0` X | Cyclic left/right · Turret aim left/right | Stick roll |
-| `axis1` Y | Cyclic forward/back · Turret aim up/down | Stick pitch |
-| `axis2` Z | Collective up/down | Throttle lever |
-| `axis5` Rz | Anti-torque (tail rotor) · Turret rotate | Stick twist rudder |
+| **Device map** | winmm index → physical control | measured on your unit by `-Identify` |
+| **Profile** | physical control → game actions | shipped in `lib/Reforger.ps1`, editable |
 
-`axis3` / `axis4` are unused — the stick reports 6 axes but only these four are flight-relevant.
+Because the profile talks about *the trigger* rather than *button 0*, it stays
+correct on a unit that enumerates in a different order, and the completeness
+check becomes something you can actually assert:
 
-Cyclic/turret share axes deliberately: they're in different contexts, so the game only
-applies whichever seat you're in.
+```
+COMPLETE -- 17 of 17 controls have a job (0 deliberately free).
+```
 
-### Buttons
+`-Verify` exits non-zero if that line does not appear, so it works in CI.
 
-| Button | Action |
+---
+
+## Modes
+
+| | |
 |---|---|
-| `button0` | Turret fire |
-| `button2` | Map |
-| `button3` | Freelook (hold) · Freelook reset (single click) |
-| `button4` | Autohover toggle |
-| `button5` | Wheel brake (+ persistent) |
-| `button6` | Turret reload |
-| `button7` | Turret next weapon |
-| `button8` | **Engine start** |
-| `button10` | VON push-to-talk (hold) · Direct channel toggle (click) |
-| hat | Freelook up/down/left/right |
+| `-Identify` | Learn your unit. Press each control when asked; it records the index, and for axes which way they travel. Do this once. |
+| `-Apply` | Generate, validate and install the config. Backs up first. |
+| `-Show` | The physical layout and what every control currently does. |
+| `-Verify` | Coverage audit + structural check of the installed file. Exit 1 on any gap. |
+| `-Watch` | Live reader: move something, see the token Reforger would use. |
+| `-CheckLog` | Read Reforger's newest log; did the engine accept the bindings? |
+| `-Restore` | Put Reforger's own stock preset back. |
+| `-SelfTest` | 140 checks. No joystick needed, nothing written. |
 
-`button1`, `button9`, `button11` are left free — bind them in-game to whatever you want.
+Useful flags: `-ProfileName <name>`, `-DryRun` (print instead of write),
+`-Force` (skip confirmations), `-ConfigName <file>`.
 
-## Two things I changed from Reforger's stock preset
+---
 
-1. **Added `HelicopterEngineStart` on `button8`.** The stock preset had no engine control at all.
-   I deliberately did **not** bind `HelicopterEngineStop` — an accidental brush of a button
-   you haven't identified yet means an engine shutdown in the air. Use the keyboard for that.
+## Profiles
 
-2. **Dropped `CharacterFire`, `CharacterNextWeapon`, and `SelectAction`.** The stock preset left
-   these live, so the stick trigger fires your rifle while you're on foot. This is a flight
-   config; door-gunner fire is still on the trigger via `TurretFire`.
+| Name | What it is |
+|---|---|
+| `helicopter` *(default)* | Everything on the stick flies or shoots. No on-foot actions, so nothing here can fire your rifle while you are walking. |
+| `full` | As above, plus the trigger and reload work on foot too. |
+| `conservative` | Confirmed actions only — see *Provenance*. Costs you sights and engine start/stop, which become explicitly `Free`. |
 
-To put `CharacterFire` back, add this block inside `Actions { }` (any unique GUIDs will do):
+The default layout, on a 12-button unit:
 
-```
-  Action CharacterFire {
-   InputSource InputSourceSum "{6B0A11E5C0DE0101}" {
-    Sources {
-     InputSourceValue "{6B0A11E5C0DE0102}" {
-      FilterPreset "hold"
-      Input "joystick0:button0"
-     }
-    }
-   }
-  }
-```
+| Control | Does |
+|---|---|
+| Stick roll | Cyclic roll · turret traverse |
+| Stick pitch | Cyclic pitch · turret elevation |
+| Throttle lever | Collective |
+| Stick twist / rudder rocker | Anti-torque · turret rotate |
+| Hat | Freelook, four directions |
+| **Trigger** | Turret fire |
+| **Side face button** | Freelook (hold) · recentre (single click) |
+| Stick top, left | Voice — push to talk (hold) · direct channel (click) |
+| Stick top, right | Map |
+| Stick raised button | Camera view |
+| **Rocker forward** | Next weapon |
+| **Rocker back** | Reload |
+| Throttle face, up | Autohover |
+| Throttle face, right | Select action |
+| Throttle face, down | Wheel brake |
+| Throttle face, left | Parking brake |
+| Throttle thumb | Sights / ADS |
+| Base buttons | Engine start · engine stop |
 
-## Verify the mapping (worth 2 minutes before you fly)
+The four in bold are the ones Reforger's own preset leaves dead. Engine stop is
+on a recessed base button on purpose — an engine cut on something you can brush
+is an engine cut in the air.
 
-Two things are assumed rather than measured: **which physical control is `axis2` vs `axis5`**,
-and **which physical button is which index**. Both are easy to confirm.
+To change a binding, edit `$script:Profiles` in `lib/Reforger.ps1`. Assign a
+job id, or the literal `'Free'` to leave a control alone deliberately. `'Free'`
+passes the completeness check; omitting the control entirely does not, which is
+the distinction the whole tool turns on.
 
-**Buttons and hat — run the reader:**
+---
+
+## Provenance of the action names
+
+Reforger publishes no list of bindable actions and ships its game data packed,
+so every action name is sourced and carries a tier.
+
+- **Tier A — observed.** The engine wrote this name into the preset it
+  generates itself, or into `InputUserSettings.conf` after an in-game rebind.
+  Certain.
+- **Tier B — extracted.** A plain-text symbol in `ArmaReforgerSteam.exe`, in
+  the same string region as the Tier A names, and unambiguously an input action
+  rather than a class or a property. Very likely right, not yet watched being
+  consumed. Flagged in yellow, listed by `-Verify`, and excluded entirely by
+  the `conservative` profile.
+
+A handful of Tier A names (`GadgetMap`, `SelectAction`, `VONChannel`) do not
+appear in the binary because they are script-side rather than engine-side. That
+is expected, and is why "not in the exe" is not treated as evidence against a
+name that has been observed.
+
+To promote Tier B to observed: launch the game once, then
 
 ```powershell
-cd C:\Users\jayja\hotas-reforger
-powershell -ExecutionPolicy Bypass -File .\Test-Hotas.ps1
+powershell -ExecutionPolicy Bypass -File .\Hotas4.ps1 -CheckLog
 ```
 
-Press each button; it prints the index and the exact token to use. Ctrl+C to quit.
+"No input errors" means the engine took every binding in the file. It knows to
+ignore `ForceFeedback effect failed to create` — the Hotas 4 has no
+force-feedback motor, so that line is always there and never means anything.
 
-**Axes — use Reforger itself.** Settings → Controls, pick a helicopter action, then move the
-control. The game shows the real token (e.g. `joystick0:axis2+`). This is authoritative;
-Windows and Reforger can disagree on the order of the non-X/Y/Z axes.
+---
 
-### If the throttle is backwards
+## What it will not do
 
-Most likely single problem: collective goes *down* when you push the throttle *forward*.
-That's a sign flip. In the config, swap the `+` and `-` on the two collective lines:
+**Write a malformed file.** Generated text is checked for brace balance, an
+`ActionManager` block, duplicate action names, duplicate input source ids,
+unrecognised input tokens and unrecognised filter presets before anything
+touches the disk, and read back and re-checked afterwards. A malformed config
+is worse than none: Reforger drops the lot and gives you a dead stick with no
+error you would notice.
+
+**Drop bindings it does not recognise.** An action from a mod, or from a newer
+build, is copied through verbatim rather than deleted.
+
+**Double an input.** The Hotas 4's twist grip and rudder rocker are one
+physical axis and both drive anti-torque. An `InputSourceSum` adds its sources,
+so listing that token twice would ask for double rudder. Duplicates are merged.
+
+**Guess your button numbers.** It has no built-in index table, because a
+plausible-but-wrong one is worse than none. `-Identify` measures.
+
+---
+
+## Things that live outside this file
+
+The binding config only says which input drives which action. Feel is set
+elsewhere:
+
+- **Deadzone** — the Thrustmaster control panel (`joy.cpl` → Properties).
+  Reforger has no deadzone setting of its own. `-Identify` measures resting
+  drift and tells you if you need one.
+- **Sensitivity curve** — `ReforgerEngineSettings.conf` carries an
+  `InputProfileJoystick` block with `Axis00`–`Axis09`, each holding a
+  `CurveCubicSplineFloat`. Set these through the game's controls UI.
+- **Inversion** — handled by `-Identify` asking for a direction. By hand, swap
+  `+`/`-` on the `Input` line.
+
+The complete set of filter presets the engine ships is `Click`, `DoubleClick`,
+`Down`, `Hold`, `HoldOnce`, `Preset`, `Pressed`, `Repeat`, `SingleClick`,
+`Toggle`, `Up`, `Value`; anything outside it is not expressible in this file.
+
+---
+
+## Other sticks
+
+Most of this is device-agnostic — the detection, the direction inference, the
+generator, the validator, the completeness audit. What is Hotas 4 specific is
+`$script:ControlCatalogue` in `lib/Layout.ps1`: the list of physical controls
+and how to describe finding each one. Rewrite that list for your stick and the
+rest follows. Controls the catalogue has never heard of still get picked up —
+`-Identify` asks you to name them and they are audited like any other.
+
+Known limits: the tool assumes `joystick0` throughout, so a stick *and*
+separate pedals *and* a throttle quadrant would need work; and the winmm
+`U`/`V` → `axis3`/`axis4` mapping is inferred rather than confirmed, which does
+not matter on a Hotas 4 because nothing uses them.
+
+---
+
+## Layout
 
 ```
-  HelicopterCollectiveIncrease   ->  Input "joystick0:axis2-"
-  HelicopterCollectiveDecrease   ->  Input "joystick0:axis2+"
+Hotas4.ps1            entry point and all the modes
+Hotas4.cmd            double-click launcher
+lib/Common.ps1        one shared helper
+lib/Ui.ps1            console output and key input
+lib/Device.ps1        winmm, discovery, live reading, direction inference
+lib/Layout.ps1        physical control catalogue, device map, coverage audit
+lib/Reforger.ps1      action catalogue, profiles, config generate/parse/validate
+tests/Run-Tests.ps1   the suite
+reference/            Reforger's stock preset, and the config this replaced
 ```
 
-Same trick for anti-torque (`axis5`) or cyclic if either feels inverted.
+Run the tests after any edit:
 
-## Tuning that lives outside this file
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Hotas4.ps1 -SelfTest
+```
 
-The binding config only says *which input drives which action*. Feel is set elsewhere:
-
-- **Deadzone** — Thrustmaster control panel (`joy.cpl` → Properties). Reforger has no
-  deadzone setting of its own. The wizard measures resting drift and tells you if you
-  need one; as of the last check yours reads 0.00 on every axis, so you don't.
-- **Sensitivity curve** — Reforger *does* support this, despite what I said first time.
-  `ReforgerEngineSettings.conf` carries an `InputProfileJoystick` block with `Axis00`–`Axis09`,
-  each holding a `CurveCubicSplineFloat`. Yours are empty, i.e. linear. Set these through
-  the game's controls UI rather than by hand.
-- **Inversion** — the wizard handles it by asking for a direction. By hand, swap `+`/`-`
-  on the `Input` line.
-
-The action filters the engine ships are `Click`, `DoubleClick`, `Down`, `Hold`, `HoldOnce`,
-`Preset`, `Pressed`, `Repeat`, `SingleClick`, `Toggle`, `Up`, `Value` — that's the whole set,
-so anything outside it isn't expressible in this file.
+The one thing tests cannot cover is the physical read — whether *your* throttle
+is the axis the driver claims. That is what `-Identify` asking you to move a
+named control is for.

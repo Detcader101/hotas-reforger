@@ -1,4 +1,8 @@
-backup-*.conf
-hotas-controls.json
+# Learned from your particular unit. Yours will not match anyone else's, and
+# it is one -Identify run away, so it is not worth committing.
 device-map.json
+
+# Written automatically every time a config is installed.
+backups/
+
 *.log
