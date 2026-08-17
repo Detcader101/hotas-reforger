@@ -483,6 +483,17 @@ Check 'a global job is live in every seat' `
 Check 'a job with both turret and character actions is live in neither pilot nor global terms' `
       (-not (Test-JobLiveInSeat -Job (Get-Job 'Fire') -Seat 'Pilot'))
 
+# An explicit Seats list overrides the context-derived answer, for the cases
+# context alone gets wrong: a gunship pilot reaches turret actions through the
+# nose gun's compartment, even though HelicopterContext and TurretContext are
+# separate. Without the override this job would be judged dead in the cockpit.
+$sights = Get-Job 'SightsToggle'
+Check 'a declared-seat job is live where it says it is' `
+      ((Test-JobLiveInSeat -Job $sights -Seat 'Pilot') -and (Test-JobLiveInSeat -Job $sights -Seat 'Gunner'))
+Check 'and dead where it does not' (-not (Test-JobLiveInSeat -Job $sights -Seat 'Foot'))
+Check 'its context alone would have said dead in the pilot seat' `
+      ((Get-JobContext $sights) -contains 'Turret' -and (Get-JobContext $sights) -notcontains 'Global')
+
 # The rule the pilot profile exists to satisfy.
 $pilot = Get-Profile 'pilot'
 $deadInPilot = Get-DeadJobsInSeat -Profile $pilot -Seat 'Pilot'

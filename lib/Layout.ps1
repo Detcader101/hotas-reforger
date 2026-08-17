@@ -98,7 +98,7 @@ $script:ControlCatalogue = @(
 
     @{ Id = 'ThrottleR2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'R2'
        Label = 'Throttle R2 button'
-       Fill  = @('FreelookToggle', 'VonDirectHold')
+       Fill  = @('SightsToggle', 'FreelookToggle', 'VonDirectHold')
        Where = 'the button marked R2 on the throttle knob' }
 
     # The two-way rocker is an ANALOGUE SLIDER, not a pair of buttons. Two wrong

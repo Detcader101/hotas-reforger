@@ -144,6 +144,17 @@ $script:Jobs = @(
        Desc  = 'reloads a turret and nothing else'
        Actions = @(@{ Name = 'TurretReload'; Preset = 'click'; Context = 'Turret' }) }
 
+    @{ Id = 'SightsToggle'; Kind = 'Button'; Tier = 'B'
+       Label = 'Gun sights (toggle)'
+       Desc  = 'toggles the gun sight in or out'
+       # Seats overrides the context-derived answer. A helicopter pilot flying
+       # something with a nose gun occupies a turret compartment for that gun,
+       # so TurretADS does reach him -- the blanket "turret is dead in the pilot
+       # seat" rule is true of a transport and wrong of a gunship.
+       Seats = @('Pilot', 'Gunner')
+       Note  = 'does nothing in an aircraft whose pilot has no gun'
+       Actions = @(@{ Name = 'TurretADS'; Preset = 'toggle'; Context = 'Turret' }) }
+
     @{ Id = 'Sights'; Kind = 'Button'; Tier = 'B'
        Label = 'Sights / ADS'
        Desc  = 'hold to look down the turret sight, or your own sights on foot'
@@ -274,7 +285,7 @@ $script:Profiles = @(
             ThrottleFaceUp    = 'Autohover'
 
             ThrottleL2 = 'VonDirectHold'
-            ThrottleR2 = 'CameraType'
+            ThrottleR2 = 'SightsToggle'
 
             # An analogue slider. Thrustmaster wire it as a second rudder
             # control alongside the twist grip, so that is what it does.
@@ -407,6 +418,14 @@ function Test-JobLiveInSeat {
         own context to do anything there.
     #>
     param($Job, [string] $Seat)
+
+    # An explicit Seats list wins over anything inferred from contexts. It is
+    # for the cases the context alone gets wrong -- a gunship pilot reaching
+    # turret actions through the nose gun's compartment being the one that
+    # prompted it.
+    $declared = Get-Opt $Job 'Seats' $null
+    if ($declared) { return (@($declared) -contains $Seat) }
+
     $ctx = Get-JobContext $Job
     if ($ctx -contains 'Global') { return $true }
     switch ($Seat) {
@@ -795,7 +814,7 @@ function Get-BoundControl {
 # a throttle button then that stick button gets nothing -- which is exactly the
 # complaint this whole tool exists to answer.
 $script:FillOrder = @('TurretFireOnly', 'TurretReloadOnly', 'TurretNextWeaponOnly',
-                      'CameraType', 'SelectAction', 'VonDirectHold', 'Sights',
+                      'CameraType', 'SelectAction', 'VonDirectHold', 'SightsToggle', 'Sights',
                       'FreelookToggle', 'Zoom', 'Horn', 'Lights',
                       # Last, and flagged when it lands: an engine cut on a
                       # button you can brush is an engine cut in the air.
