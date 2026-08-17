@@ -1,6 +1,8 @@
-# Learned from your particular unit. Yours will not match anyone else's, and
-# it is one -Identify run away, so it is not worth committing.
+# Learned from your particular unit by -Identify. Yours will not match anyone
+# else's, and it is one short run away, so it is not worth committing.
+# reference/hotas4-pc-layout.json is a measured example to compare against.
 device-map.json
+device-audit.json
 
 # Written automatically every time a config is installed.
 backups/

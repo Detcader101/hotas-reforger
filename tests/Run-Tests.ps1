@@ -50,8 +50,7 @@ function New-FakeMap {
     $map.Device = 'T.Flight Hotas 4 (test)'
     $map.Verified = $true
     $map.Hat = $true
-    # Twelve driver indices. StickR3 and ThrottleRocker are deliberately absent:
-    # the rocker sends nothing on real hardware, and R3 is not yet confirmed.
+    # Twelve driver indices, matching a real unit's enumeration order.
     $order = @('StickTrigger', 'StickL1', 'StickL3', 'StickR3',
                'ThrottleFaceLeft', 'ThrottleFaceDown', 'ThrottleFaceRight', 'ThrottleFaceUp',
                'ThrottleR2', 'ThrottleL2', 'BaseLeft', 'BaseRight')
@@ -60,8 +59,8 @@ function New-FakeMap {
     $map.Axes['AxisPitch']    = @{ Index = 1; Sign = '-' }   # inverted on purpose
     $map.Axes['AxisThrottle'] = @{ Index = 2; Sign = '+' }
     $map.Axes['AxisTwist']    = @{ Index = 5; Sign = '+' }
-    # The rocker is a slider on winmm U, which this tool maps to Reforger axis3.
-    $map.Axes['ThrottleRocker'] = @{ Index = 3; Sign = '+' }
+    # The rocker is a slider on winmm V, which this tool maps to Reforger axis4.
+    $map.Axes['ThrottleRocker'] = @{ Index = 4; Sign = '+' }
     return $map
 }
 
@@ -218,17 +217,8 @@ Check 'an explicitly freed control does not count as a gap' (Test-CoverageComple
 Check 'an explicitly freed control is reported as Free' `
       (@($rows | Where-Object { $_.ControlId -eq 'StickTrigger' })[0].Status -eq 'Free')
 
-# A control winmm cannot read is neither an oversight nor a dead control. It
-# must not block completeness, and it must not be silently ignored either.
-$noRocker = New-FakeMap
-$noRocker.Axes.Remove('ThrottleRocker')
-$rockerRows = Get-Coverage -Map $noRocker -Profile (Get-Profile 'pilot') -ButtonCount 12 -HasHat $true
-$rockerRow = @($rockerRows | Where-Object { $_.ControlId -eq 'ThrottleRocker' })
-Check 'an unreadable control is reported as needing a manual bind' `
-      ($rockerRow.Count -eq 1 -and $rockerRow[0].Status -eq 'NeedsBind')
-Check 'and does not block completeness' (Test-CoverageComplete $rockerRows)
-
-# ...but once its token is supplied by hand it binds like anything else.
+# A token supplied by hand -- via -Bind, for a control this tool cannot measure
+# on some other device -- has to reach the config like any measured one.
 $boundRocker = New-FakeMap
 $boundRocker.Axes['ThrottleRocker'] = @{ Index = 6; Sign = '+' }
 $rockerBindings = Resolve-Bindings -Map $boundRocker -Profile (Get-Profile 'pilot')

@@ -101,15 +101,16 @@ $script:ControlCatalogue = @(
        Fill  = @('FreelookToggle', 'VonDirectHold')
        Where = 'the button marked R2 on the throttle knob' }
 
-    # The two-way rocker is an ANALOGUE SLIDER, not a pair of buttons. It was
-    # catalogued as a button, which made the audit watch only for button presses
-    # and conclude the rocker sent nothing at all. It reports on winmm's U or V,
-    # which is why it needs a probe like any other axis.
-    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Axis'; Unreadable = $true
+    # The two-way rocker is an ANALOGUE SLIDER, not a pair of buttons. Two wrong
+    # calls were made about it before it was measured: first that it was two
+    # buttons (so the audit only watched for presses and reported it dead), then
+    # that winmm could not read it at all. It reports on winmm's V, which this
+    # tool maps to Reforger axis4 -- an inferred index, so worth confirming.
+    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Axis'
        Label = 'Throttle rocker'
        Where = 'the small two-way rocker on the throttle knob'
        Probe = 'Push the throttle ROCKER fully one way and hold it.'
-       Note  = 'winmm cannot read this control on a Hotas 4 -- it works in joy.cpl and moves none of the six axes winmm exposes. Reforger may still see it; get the token from the game and use -Bind.' }
+       Note  = 'Thrustmaster wire this as a second rudder alongside the twist grip' }
 
     # --- base ----------------------------------------------------------------
     @{ Id = 'BaseLeft';  Zone = 'Base'; Kind = 'Button'; Ps4 = 'Share'

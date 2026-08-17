@@ -1,0 +1,43 @@
+{
+  "Pid": 46716,
+  "Device": "Microsoft PC-joystick driver",
+  "Vid": 1103,
+  "Buttons": {
+    "7": "ThrottleFaceUp",
+    "2": "StickR3",
+    "9": "ThrottleL2",
+    "5": "ThrottleFaceDown",
+    "3": "StickL3",
+    "0": "StickTrigger",
+    "11": "BaseRight",
+    "10": "BaseLeft",
+    "6": "ThrottleFaceRight",
+    "8": "ThrottleR2",
+    "1": "StickL1",
+    "4": "ThrottleFaceLeft"
+  },
+  "Verified": true,
+  "Axes": {
+    "ThrottleRocker": {
+      "Sign": "+",
+      "Index": 4
+    },
+    "AxisPitch": {
+      "Sign": "-",
+      "Index": 1
+    },
+    "AxisRoll": {
+      "Sign": "+",
+      "Index": 0
+    },
+    "AxisTwist": {
+      "Sign": "+",
+      "Index": 5
+    },
+    "AxisThrottle": {
+      "Sign": "-",
+      "Index": 2
+    }
+  },
+  "Hat": true
+}
