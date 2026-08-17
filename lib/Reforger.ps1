@@ -386,13 +386,35 @@ function Get-TierBActions {
 # Reforger's, so a generated file is recognisable at a glance.
 $script:IdPrefix = '7CB1F0A54D'
 
-function New-IdSeries { return [pscustomobject]@{ Next = 1 } }
+function New-IdSeries {
+    <#
+        $Avoid is text that will end up in the same file -- preserved blocks
+        from an existing config. Their ids have to be excluded, or filling a
+        config this tool generated collides with itself: both halves start
+        counting at 1 and every id is a duplicate. The validator catches it and
+        refuses to write, so the symptom is a fill that always fails.
+    #>
+    param([string[]] $Avoid = @())
+    $used = @{}
+    foreach ($text in $Avoid) {
+        if (-not $text) { continue }
+        foreach ($m in [regex]::Matches($text, '"\{([0-9A-Fa-f]{16})\}"')) {
+            $used[$m.Groups[1].Value.ToUpperInvariant()] = $true
+        }
+    }
+    return [pscustomobject]@{ Next = 1; Used = $used }
+}
 
 function Get-NextId {
     param($Series)
-    $id = '{0}{1:X6}' -f $script:IdPrefix, $Series.Next
-    $Series.Next++
-    return $id
+    while ($true) {
+        $id = '{0}{1:X6}' -f $script:IdPrefix, $Series.Next
+        $Series.Next++
+        if (-not $Series.Used.ContainsKey($id)) {
+            $Series.Used[$id] = $true
+            return $id
+        }
+    }
 }
 
 function Test-InputToken {
@@ -444,13 +466,14 @@ function Resolve-Bindings {
         entry for is dropped silently, because a control this unit does not
         have is not a missing binding.
     #>
-    param($Map, $Profile, [string] $Prefix = 'joystick0')
+    param($Map, $Profile, [string] $Prefix = 'joystick0', [string[]] $SkipControls = @())
 
     # An ordered hashtable keeps first-seen order, so a generated file lists
     # actions in control-catalogue order and two runs diff cleanly.
     $byAction = [ordered]@{}
 
     foreach ($c in $script:ControlCatalogue) {
+        if ($SkipControls -contains $c.Id) { continue }
         if (-not $Profile.Bind.ContainsKey($c.Id)) { continue }
         $jobId = $Profile.Bind[$c.Id]
         if (-not $jobId -or $jobId -eq 'Free') { continue }
@@ -527,7 +550,7 @@ function Build-Config {
         understanding it.
     #>
     param($Bindings, [string[]] $Preserve = @())
-    $series = New-IdSeries
+    $series = New-IdSeries -Avoid $Preserve
     $lines = @('ActionManager {', ' Actions {')
     foreach ($b in $Bindings) { $lines += (New-ActionBlock -Name $b.Action -Sources $b.Sources -Series $series) }
     foreach ($raw in $Preserve) { $lines += $raw.TrimEnd("`r", "`n").Split("`n") | ForEach-Object { $_.TrimEnd("`r") } }
@@ -586,6 +609,118 @@ function Read-Config {
         $result.Raw[$name] = ($block -join "`r`n")
     }
     return $result
+}
+
+# -----------------------------------------------------------------------------
+# Filling gaps rather than replacing a layout
+# -----------------------------------------------------------------------------
+#
+# This is the default, and the reason is a mistake worth recording. Asked to
+# bind four dead controls, an earlier version generated a whole fresh layout and
+# installed it. Nothing was corrupt -- but ten bindings that already worked had
+# quietly moved to different buttons, so every piece of muscle memory the user
+# had was wrong. A binding tool inherits a config someone has already tuned; the
+# safe default is to touch only what is doing nothing.
+
+function ConvertFrom-InputToken {
+    <# 'joystick0:button7' -> the control id that is, per this device map. #>
+    param($Map, [string] $Token)
+    $t = $Token -replace '^joystick\d+:', ''
+
+    if ($t -match '^button(\d+)$') {
+        $idx = $Matches[1]
+        if ($Map.Buttons.ContainsKey($idx)) { return $Map.Buttons[$idx] }
+        return $null
+    }
+    if ($t -match '^pov_') { return 'StickHat' }
+    if ($t -match '^axis(\d)[+-]$') {
+        $idx = [int]$Matches[1]
+        foreach ($k in $Map.Axes.Keys) { if ($Map.Axes[$k].Index -eq $idx) { return $k } }
+        return $null
+    }
+    return $null
+}
+
+function Get-BoundControl {
+    <#
+        Control ids that the config already drives something with. These are
+        left strictly alone in fill mode -- not re-bound, not re-ordered, not
+        re-numbered.
+    #>
+    param($Map, $Parsed)
+    $bound = @{}
+    foreach ($name in $Parsed.Actions.Keys) {
+        foreach ($src in $Parsed.Actions[$name]) {
+            $id = ConvertFrom-InputToken -Map $Map -Token $src.Token
+            if ($id) { $bound[$id] = $true }
+        }
+    }
+    return ,@($bound.Keys)
+}
+
+# Fallback jobs for a dead control whose profile job is already in the file,
+# best first. Without this a control silently stays dead: the shipped profile
+# puts Map on the top-right stick button, and if your config already has Map on
+# a throttle button then that stick button gets nothing -- which is exactly the
+# complaint this whole tool exists to answer.
+$script:FillOrder = @('TurretFireOnly', 'TurretReloadOnly', 'TurretNextWeaponOnly',
+                      'CameraType', 'SelectAction', 'Sights', 'FreelookToggle',
+                      'Zoom', 'Horn', 'Lights')
+
+function Resolve-FillBindings {
+    <#
+        What to ADD to an existing config: a job for every control that
+        currently does nothing, and no change to anything else.
+
+        An action already in the file is never emitted again -- two Action
+        blocks with one name is a duplicate the validator rejects, and the
+        existing one is the user's, so it wins. When a control's profile job is
+        taken, it falls back through FillOrder rather than being left dead.
+    #>
+    param($Map, $Profile, $Parsed, [string] $Prefix = 'joystick0')
+
+    $bound = Get-BoundControl -Map $Map -Parsed $Parsed
+
+    # Action names spoken for: already in the file, or claimed earlier in this run.
+    $taken = @{}
+    foreach ($n in $Parsed.Actions.Keys) { $taken[$n] = $true }
+
+    $working = Copy-Profile $Profile
+    $chosen = @{}
+    $unfillable = @()
+
+    foreach ($c in $script:ControlCatalogue) {
+        if ($bound -contains $c.Id) { continue }
+        if ($c.Kind -eq 'Axis' -or $c.Kind -eq 'Hat') { continue }
+
+        # Profile choice first, then what this control is physically good for,
+        # then the global fallback. Without the middle term a reload can land on
+        # a stick-head button while the two-way rocker gets select-action.
+        $preferred = Get-Opt $Profile.Bind $c.Id 'Free'
+        $order = @($preferred) + @(Get-Opt $c 'Fill' @()) + $script:FillOrder
+
+        $pick = $null
+        foreach ($jobId in $order) {
+            if ($jobId -eq 'Free' -or -not $jobId) { continue }
+            $job = Get-Job $jobId
+            if (-not $job -or $job.Kind -ne $c.Kind) { continue }
+            $clash = $false
+            foreach ($n in (Get-JobActionNames $job)) { if ($taken.ContainsKey($n)) { $clash = $true } }
+            if ($clash) { continue }
+            $pick = $jobId
+            break
+        }
+
+        if (-not $pick) { $unfillable += $c.Id; $working.Bind[$c.Id] = 'Free'; continue }
+
+        $working.Bind[$c.Id] = $pick
+        $chosen[$c.Id] = $pick
+        foreach ($n in (Get-JobActionNames (Get-Job $pick))) { $taken[$n] = $true }
+    }
+
+    $add = Resolve-Bindings -Map $Map -Profile $working -Prefix $Prefix -SkipControls $bound
+
+    return @{ Add = $add; Untouched = $bound; Chosen = $chosen; Unfillable = $unfillable }
 }
 
 function Get-UnknownActionBlock {

@@ -433,6 +433,102 @@ Check 'a parsed action keeps its preset' ($parsed.Actions['TurretFire'][0].Prese
 Remove-Item $roundTrip -Force
 
 # =============================================================================
+Group 'Fill mode -- never move a binding the user already has'
+# =============================================================================
+#
+# The regression these exist for: asked to bind four dead controls, the tool
+# generated a fresh layout and installed it. Nothing was corrupt, but ten
+# working bindings had moved to different buttons. Fill mode must add to dead
+# controls and touch nothing else, ever.
+
+# A config resembling one Reforger wrote and the user then tuned: axes, hat and
+# six buttons in use, six buttons dead.
+$existingBindings = @(
+    @{ Action = 'HelicopterCyclicRight'; Sources = @(@{ Token = 'joystick0:axis0+'; Preset = 'right'; ControlId = 'AxisRoll' }) }
+    @{ Action = 'HelicopterCyclicLeft';  Sources = @(@{ Token = 'joystick0:axis0-'; Preset = 'left';  ControlId = 'AxisRoll' }) }
+    @{ Action = 'VONChannel';            Sources = @(@{ Token = 'joystick0:button1';  Preset = 'hold';   ControlId = 'StickTopLeft' }) }
+    @{ Action = 'HelicopterAutohoverToggle'; Sources = @(@{ Token = 'joystick0:button4'; Preset = 'click'; ControlId = 'ThrottleFaceLeft' }) }
+    @{ Action = 'HelicopterWheelBrake';  Sources = @(@{ Token = 'joystick0:button5';  Preset = 'pressed'; ControlId = 'ThrottleFaceDown' }) }
+    @{ Action = 'Freelook';              Sources = @(@{ Token = 'joystick0:button6';  Preset = 'hold';   ControlId = 'ThrottleFaceRight' }) }
+    @{ Action = 'GadgetMap';             Sources = @(@{ Token = 'joystick0:button10'; Preset = 'select'; ControlId = 'BaseLeft' }) }
+    @{ Action = 'FreelookUp';            Sources = @(@{ Token = 'joystick0:pov_up';   Preset = 'up';     ControlId = 'StickHat' }) }
+)
+$existingPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-existing-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $existingPath -Value (Build-Config -Bindings $existingBindings) -Encoding UTF8 -NoNewline
+$existing = Read-Config $existingPath
+
+$fillMap = New-FakeMap
+$fill = Resolve-FillBindings -Map $fillMap -Profile (Get-Profile 'helicopter') -Parsed $existing
+
+Check 'controls already in use are reported as untouched' `
+      (($fill.Untouched -contains 'StickTopLeft') -and ($fill.Untouched -contains 'AxisRoll') -and
+       ($fill.Untouched -contains 'StickHat'))
+
+$addedControls = @($fill.Add | ForEach-Object { $_.Sources } | ForEach-Object { $_.ControlId } | Sort-Object -Unique)
+foreach ($id in $fill.Untouched) {
+    Check "fill does not re-bind $id" ($addedControls -notcontains $id)
+}
+
+# The four the user actually complained about.
+foreach ($id in @('StickTrigger', 'StickSide', 'RockerR2', 'RockerL2')) {
+    Check "fill gives $id a job" ($addedControls -contains $id) ("added: " + ($addedControls -join ', '))
+}
+
+$addedActions = @($fill.Add | ForEach-Object { $_.Action })
+foreach ($a in $addedActions) {
+    Check "fill does not re-declare $a" (-not $existing.Actions.Contains($a))
+}
+Check 'fill emits no duplicate action names' `
+      ((@($addedActions | Sort-Object -Unique).Count) -eq $addedActions.Count)
+
+# A control whose profile job is taken must fall back, not be left dead. Map is
+# already on the base button here, so the top-right stick button has to get
+# something else rather than nothing.
+Check 'a control whose profile job is taken still gets one' ($addedControls -contains 'StickTopRight')
+Check 'and it is not the job that was already taken' `
+      ($addedActions -notcontains 'GadgetMap')
+
+# The whole file must survive the round trip unchanged plus the additions.
+$preserveAll = @()
+foreach ($n in $existing.Actions.Keys) { $preserveAll += $existing.Raw[$n] }
+$filled = Build-Config -Bindings $fill.Add -Preserve $preserveAll
+Check 'the filled config validates' ((Test-Config $filled).Count -eq 0) ((Test-Config $filled) -join '; ')
+
+$filledPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-filled-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $filledPath -Value $filled -Encoding UTF8 -NoNewline
+$reparsed = Read-Config $filledPath
+
+Check 'every original action survived' `
+      (@($existing.Actions.Keys | Where-Object { -not $reparsed.Actions.Contains($_) }).Count -eq 0)
+
+$moved = @()
+foreach ($n in $existing.Actions.Keys) {
+    $before = @($existing.Actions[$n] | ForEach-Object { $_.Token }) -join ','
+    $after  = @($reparsed.Actions[$n] | ForEach-Object { $_.Token }) -join ','
+    if ($before -ne $after) { $moved += "$n : $before -> $after" }
+}
+Check 'and not one of them moved to a different input' ($moved.Count -eq 0) ($moved -join ' ; ')
+
+$presets = @()
+foreach ($n in $existing.Actions.Keys) {
+    $before = @($existing.Actions[$n] | ForEach-Object { $_.Preset }) -join ','
+    $after  = @($reparsed.Actions[$n] | ForEach-Object { $_.Preset }) -join ','
+    if ($before -ne $after) { $presets += "$n : $before -> $after" }
+}
+Check 'and not one of their presets changed' ($presets.Count -eq 0) ($presets -join ' ; ')
+
+# Nothing to do is a valid, quiet outcome.
+$fullMapProfile = Get-Profile 'helicopter'
+$everything = Build-Config -Bindings (Resolve-Bindings -Map (New-FakeMap) -Profile $fullMapProfile)
+$everythingPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-full-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $everythingPath -Value $everything -Encoding UTF8 -NoNewline
+$noGaps = Resolve-FillBindings -Map (New-FakeMap) -Profile $fullMapProfile -Parsed (Read-Config $everythingPath)
+Check 'a config with nothing dead adds nothing' ($noGaps.Add.Count -eq 0) `
+      (@($noGaps.Add | ForEach-Object { $_.Action }) -join ', ')
+
+Remove-Item $existingPath, $filledPath, $everythingPath -Force
+
+# =============================================================================
 Group 'Validation catches malformed files'
 # =============================================================================
 

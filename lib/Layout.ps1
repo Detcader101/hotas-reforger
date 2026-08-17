@@ -41,6 +41,7 @@ $script:ControlCatalogue = @(
     # --- stick ---------------------------------------------------------------
     @{ Id = 'StickTrigger';   Zone = 'Stick'; Kind = 'Button'
        Label = 'Trigger'
+       Fill  = @('TurretFireOnly', 'Fire')
        Where = 'the trigger on the front of the grip, under your index finger' }
 
     @{ Id = 'StickTopLeft';   Zone = 'Stick'; Kind = 'Button'
@@ -49,10 +50,12 @@ $script:ControlCatalogue = @(
 
     @{ Id = 'StickTopRight';  Zone = 'Stick'; Kind = 'Button'
        Label = 'Stick top - right'
+       Fill  = @('SelectAction', 'CameraType')
        Where = 'the right-hand button on the top of the stick head' }
 
     @{ Id = 'StickSide';      Zone = 'Stick'; Kind = 'Button'
        Label = 'Side face button'
+       Fill  = @('Freelook', 'CameraType', 'FreelookToggle')
        Where = 'the large button on the side face of the grip, under your thumb' }
 
     @{ Id = 'StickHat';       Zone = 'Stick'; Kind = 'Hat'
@@ -75,16 +78,19 @@ $script:ControlCatalogue = @(
 
     @{ Id = 'ThrottleFaceUp';    Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'Triangle'
        Label = 'Throttle face - up'
+       Fill  = @('Autohover', 'Sights')
        Where = 'the top button of the four in a diamond on the throttle' }
 
     # The small two-way rocker on the throttle. It is two ordinary buttons, not
     # an analogue axis, and Thrustmaster prints L2 and R2 on the two ends.
     @{ Id = 'RockerR2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'R2'
        Label = 'Throttle rocker - R2'
+       Fill  = @('TurretNextWeaponOnly', 'NextWeapon')
        Where = 'the small two-way rocker on the throttle, pressed on the R2 end' }
 
     @{ Id = 'RockerL2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'L2'
        Label = 'Throttle rocker - L2'
+       Fill  = @('TurretReloadOnly', 'Reload')
        Where = 'the same rocker, pressed on the L2 end' }
 
     # --- base ----------------------------------------------------------------

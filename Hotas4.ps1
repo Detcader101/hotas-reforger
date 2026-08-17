@@ -60,6 +60,7 @@ param(
 
     [string] $ConfigName,
     [switch] $DryRun,
+    [switch] $Replace,
     [switch] $Force
 )
 
@@ -537,6 +538,106 @@ function Invoke-Verify {
 # Apply
 # =============================================================================
 
+function Invoke-ApplyFill {
+    <#
+        Add jobs to controls that do nothing. Change nothing else -- not the
+        token, not the preset, not the order of anything already in the file.
+    #>
+    param($Stick, $Map, $Profile, $Parsed, [string] $Installed)
+
+    $fill = Resolve-FillBindings -Map $Map -Profile $Profile -Parsed $Parsed
+
+    Write-Host ''
+    Write-Section 'ALREADY BOUND -- LEFT EXACTLY AS THEY ARE'
+    foreach ($id in ($fill.Untouched | Sort-Object)) {
+        $token = '-'
+        $idx = Get-MappedButtonIndex -Map $Map -ControlId $id
+        if ($null -ne $idx) { $token = "button$idx" }
+        elseif ($id -eq 'StickHat') { $token = 'pov' }
+        elseif ($Map.Axes.ContainsKey($id)) { $token = "axis$($Map.Axes[$id].Index)" }
+        Write-Field $token (Get-ControlLabel $id) 'DarkGray'
+    }
+
+    if ($fill.Add.Count -eq 0) {
+        Write-Host ''
+        Write-Good 'Every control already does something. Nothing to add.'
+        return 0
+    }
+
+    Write-Host ''
+    Write-Section 'WOULD ADD -- CONTROLS THAT CURRENTLY DO NOTHING'
+    foreach ($id in $fill.Chosen.Keys) {
+        $job = Get-Job $fill.Chosen[$id]
+        $idx = Get-MappedButtonIndex -Map $Map -ControlId $id
+        $tier = ''
+        if ($job.Tier -eq 'B') { $tier = '   [unconfirmed]' }
+        Write-Host ('    ' + "button$idx".PadRight(10)) -NoNewline -ForegroundColor DarkGray
+        Write-Host ((Get-ControlLabel $id).PadRight(28)) -NoNewline -ForegroundColor DarkCyan
+        Write-Host ($job.Label + $tier) -ForegroundColor Green
+        Write-Note ("            " + $job.Desc)
+    }
+    if ($fill.Unfillable.Count -gt 0) {
+        Write-Host ''
+        Write-Warn ('no action left to give these: ' +
+                    (($fill.Unfillable | ForEach-Object { Get-ControlLabel $_ }) -join ', '))
+        Write-Note 'Every job this tool knows is already used somewhere in your config.'
+    }
+
+    # Everything already in the file is carried through verbatim.
+    $preserve = @()
+    foreach ($name in $Parsed.Actions.Keys) { $preserve += $Parsed.Raw[$name] }
+
+    $text = Build-Config -Bindings $fill.Add -Preserve $preserve
+
+    $problems = Test-Config $text
+    if ($problems.Count -gt 0) {
+        Write-Host ''
+        Write-Bad 'The generated config is malformed. Nothing was written.'
+        foreach ($p in $problems) { Write-Bad "  $p" }
+        return 1
+    }
+
+    Write-Host ''
+    Write-Section 'SUMMARY'
+    Write-Field 'to' $Installed
+    Write-Field 'kept unchanged' "$($Parsed.Actions.Count) action(s)"
+    Write-Field 'added' "$($fill.Add.Count) action(s)"
+    Write-Field 'validation' 'passed' 'Green'
+
+    if ($DryRun) {
+        Write-Host ''
+        Write-Note '-DryRun: nothing written.'
+        return 0
+    }
+    if (-not $Force -and -not (Confirm-Action 'Add these, leaving everything else untouched?')) {
+        Write-Note 'Nothing written.'
+        return 0
+    }
+
+    Backup-Installed -Installed $Installed
+    Set-Content -Path $Installed -Value $text -Encoding UTF8 -NoNewline
+
+    $after = Get-Content -Raw $Installed
+    $afterProblems = Test-Config $after
+    if ($afterProblems.Count -gt 0) {
+        Write-Bad 'The file on disk does not validate after writing:'
+        foreach ($p in $afterProblems) { Write-Bad "  $p" }
+        return 1
+    }
+    Write-Good 'written and verified'
+    return 0
+}
+
+function Backup-Installed {
+    param([string] $Installed)
+    if (-not (Test-Path $Installed)) { return }
+    if (-not (Test-Path $script:BackupDir)) { New-Item -ItemType Directory -Path $script:BackupDir -Force | Out-Null }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backup = Join-Path $script:BackupDir "$stamp-$(Split-Path -Leaf $Installed)"
+    Copy-Item -Path $Installed -Destination $backup -Force
+    Write-Good "backed up -> backups\$(Split-Path -Leaf $backup)"
+}
+
 function Invoke-Apply {
     Write-Title 'APPLY' "profile: $ProfileName"
 
@@ -550,6 +651,24 @@ function Invoke-Apply {
     Write-Host ''
     Write-Field 'profile' $profile.Label 'White'
     Write-Note $profile.Desc
+
+    $dir = Get-InputConfigDir
+    $installed = Join-Path $dir (Get-ConfigFileName $stick)
+    $parsed = Read-Config $installed
+
+    # FILL is the default. Replace only on request, because replacing moves
+    # bindings the user already has in their hands.
+    if (-not $Replace -and $parsed.Actions.Count -gt 0) {
+        return (Invoke-ApplyFill -Stick $stick -Map $map -Profile $profile -Parsed $parsed -Installed $installed)
+    }
+
+    if ($Replace -and $parsed.Actions.Count -gt 0) {
+        Write-Host ''
+        Write-Warn 'REPLACE: every binding in the current config will be regenerated.'
+        Write-Note 'Anything you have got used to may end up on a different button.'
+        Write-Note 'Drop -Replace to add jobs to dead controls and leave the rest alone.'
+        if (-not $Force -and -not (Confirm-Action 'Replace the whole layout?')) { return 1 }
+    }
 
     $rows = Get-CoverageForCurrent -Stick $stick -Map $map -Profile $profile
     $complete = Show-Coverage -Rows $rows -Profile $profile
@@ -571,15 +690,8 @@ function Invoke-Apply {
         if (-not $Force -and -not (Confirm-Action 'Write anyway?')) { return 1 }
     }
 
-    $dir = Get-InputConfigDir
-    $installed = Join-Path $dir (Get-ConfigFileName $stick)
-
-    $preserve = @()
-    if (Test-Path $installed) {
-        $parsed = Read-Config $installed
-        $preserve = Get-UnknownActionBlock $parsed
-        if ($preserve.Count -gt 0) { Write-Note "keeping $($preserve.Count) action(s) this tool does not manage" }
-    }
+    $preserve = Get-UnknownActionBlock $parsed
+    if ($preserve.Count -gt 0) { Write-Note "keeping $($preserve.Count) action(s) this tool does not manage" }
 
     $text = Build-Config -Bindings $bindings -Preserve $preserve
 
