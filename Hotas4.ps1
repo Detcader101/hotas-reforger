@@ -635,6 +635,52 @@ function Invoke-ApplyFill {
     return 0
 }
 
+function Write-AxisWarning {
+    <#
+        Two things about axes that only measurement can tell you, and that a
+        valid config will happily hide.
+    #>
+    param($Stick, $Map, $Profile, $Bindings)
+
+    $inferred = Get-InferredAxisWarning $Bindings
+    if ($inferred.Count -gt 0) {
+        Write-Host ''
+        Write-Section 'AXIS INDEX NOT CONFIRMED'
+        foreach ($i in $inferred) { Write-Warn $i }
+        Write-Note 'winmm calls these U and V; that they are Reforger axis3 and axis4 is'
+        Write-Note 'inferred, not observed. X, Y, Z and the rudder do line up. To confirm:'
+        Write-Note 'Reforger -> Settings -> Controls, pick the action, move the control --'
+        Write-Note 'the game prints the real token, which is authoritative.'
+    }
+
+    # A two-way action driven by an axis that does not rest at centre applies
+    # that input permanently. On rudder that is a helicopter yawing on its own.
+    $rest = Get-RestingPosition -Id $Stick.Id
+    if (-not $rest) { return }
+
+    $offCentre = @()
+    foreach ($c in (Get-ControlsByKind 'Axis')) {
+        if (-not $Map.Axes.ContainsKey($c.Id)) { continue }
+        $jobId = Get-Opt $Profile.Bind $c.Id 'Free'
+        if ($jobId -eq 'Free' -or -not $jobId) { continue }
+        $job = Get-Job $jobId
+        # Collective is one-way in feel: a throttle lever resting at an end is
+        # normal and correct. A centring control resting off-centre is not.
+        if (-not $job -or $job.Id -eq 'Collective') { continue }
+        $v = $rest[$Map.Axes[$c.Id].Index]
+        if ([math]::Abs($v) -gt 0.25) { $offCentre += ('{0} rests at {1:N2}, not centre' -f $c.Label, $v) }
+    }
+
+    if ($offCentre.Count -gt 0) {
+        Write-Host ''
+        Write-Section 'AXIS NOT RESTING AT CENTRE'
+        foreach ($o in $offCentre) { Write-Warn $o }
+        Write-Note 'Bound to a two-way action this applies that input constantly -- on the'
+        Write-Note 'tail rotor it is a permanent yaw you cannot trim out. Let go of'
+        Write-Note 'everything and re-run, or leave that control unbound.'
+    }
+}
+
 function Backup-Installed {
     param([string] $Installed)
     if (-not (Test-Path $Installed)) { return }
@@ -696,6 +742,8 @@ function Invoke-Apply {
         Write-Note 'Cyclic and turret aim sharing the stick is fine -- different seats.'
         if (-not $Force -and -not (Confirm-Action 'Write anyway?')) { return 1 }
     }
+
+    Write-AxisWarning -Stick $stick -Map $map -Profile $profile -Bindings $bindings
 
     $preserve = Get-UnknownActionBlock $parsed
     if ($preserve.Count -gt 0) { Write-Note "keeping $($preserve.Count) action(s) this tool does not manage" }
@@ -840,10 +888,13 @@ function Invoke-AuditOne {
     Write-Host ''
     Write-Keys 'do it now   -- or --   [n] I pressed it and NOTHING happened   [s] skip   [q] stop'
 
-    $accept = 'Digital'
-    if ($c.Kind -eq 'Axis') { $accept = 'Any' }
-
-    $r = Wait-Control -Id $Stick.Id -Accept $accept -Keys @('n', 's', 'q') -TimeoutMs 20000
+    # ALWAYS 'Any'. The audit exists to discover what a control produces, so
+    # restricting what it will look at defeats the entire point. This was
+    # 'Digital' for anything catalogued as a button, and Digital ignores axes --
+    # so the throttle rocker, catalogued as a button, moved a slider the audit
+    # was deliberately not watching, and got reported as sending nothing. A
+    # crippled test reported as a hardware fact is worse than no test.
+    $r = Wait-Control -Id $Stick.Id -Accept 'Any' -Keys @('n', 's', 'q') -TimeoutMs 20000
 
     if ($r.Kind -eq 'Gone') { Write-Bad 'The stick stopped responding.'; return $false }
 

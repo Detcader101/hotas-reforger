@@ -343,6 +343,36 @@ function Wait-Control {
     return @{ Kind = 'Timeout' }
 }
 
+function Get-RestingPosition {
+    <#
+        Where each axis sits when untouched, averaged over a short sample.
+
+        This matters for one specific failure. A rocker or slider that does NOT
+        spring back to centre, bound to a two-way action like rudder, applies
+        that input constantly and forever -- the aircraft yaws on its own and
+        nothing you do with the stick fixes it. A throttle lever resting at an
+        extreme is correct and expected; a rudder control resting off-centre is
+        not, and the difference is only visible by measuring.
+    #>
+    param([uint32] $Id, [int] $SampleMs = 600)
+    $total = New-Object double[] 6
+    $n = 0
+    $spent = 0
+    while ($spent -lt $SampleMs) {
+        $r = Read-Device $Id
+        if ($r) {
+            foreach ($i in 0..5) { $total[$i] += $r.Axes[$i] }
+            $n++
+        }
+        Start-Sleep -Milliseconds 30
+        $spent += 30
+    }
+    if ($n -eq 0) { return $null }
+    $avg = New-Object double[] 6
+    foreach ($i in 0..5) { $avg[$i] = [math]::Round($total[$i] / $n, 3) }
+    return $avg
+}
+
 function Get-RestingDrift {
     <#
         How far each axis wanders while untouched. Reforger has no deadzone

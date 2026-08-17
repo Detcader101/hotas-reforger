@@ -277,8 +277,9 @@ $script:Profiles = @(
             ThrottleL2 = 'VonDirectHold'
             ThrottleR2 = 'FreelookToggle'
 
-            # Sends no input on this hardware. Recorded, not forgotten.
-            ThrottleRocker = 'Free'
+            # An analogue slider. Thrustmaster wire it as a second rudder
+            # control alongside the twist grip, so that is what it does.
+            ThrottleRocker = 'AntiTorque'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -309,7 +310,7 @@ $script:Profiles = @(
             StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
             ThrottleR2 = 'FreelookToggle'
-            ThrottleRocker = 'Free'
+            ThrottleRocker = 'AntiTorque'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -341,7 +342,7 @@ $script:Profiles = @(
             StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
             ThrottleR2 = 'FreelookToggle'
-            ThrottleRocker = 'Free'
+            ThrottleRocker = 'AntiTorque'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -373,7 +374,7 @@ $script:Profiles = @(
             StickR3    = 'CameraType'
             ThrottleL2 = 'VonDirectHold'
             ThrottleR2 = 'Free'
-            ThrottleRocker = 'Free'
+            ThrottleRocker = 'AntiTorque'
 
             BaseLeft  = 'Free'
             BaseRight = 'Free'
@@ -525,8 +526,35 @@ function Get-NextId {
 }
 
 function Test-InputToken {
+    <#
+        Ten axes, not six. Reforger's own ReforgerEngineSettings.conf carries an
+        InputProfileJoystick block with Axis00 through Axis09, so the engine
+        counts higher than the six winmm exposes -- which matters the moment a
+        slider is involved.
+    #>
     param([string] $Token)
-    return $Token -match '^joystick\d+:(button\d+|axis[0-5][+-]|pov_(up|down|left|right))$'
+    return $Token -match '^joystick\d+:(button\d+|axis[0-9][+-]|pov_(up|down|left|right))$'
+}
+
+# winmm's U and V are mapped to Reforger axis3 and axis4 by inference, not by
+# observation -- X/Y/Z and the rudder line up, these two do not have a confirmed
+# correspondence. Anything landing here is worth saying out loud, because a
+# slider is exactly the case where the guess could be wrong.
+$script:InferredAxisIndex = @(3, 4)
+
+function Get-InferredAxisWarning {
+    param($Bindings)
+    $out = @()
+    foreach ($b in $Bindings) {
+        foreach ($s in $b.Sources) {
+            if ($s.Token -match '^joystick\d+:axis([0-9])[+-]$') {
+                if ($script:InferredAxisIndex -contains [int]$Matches[1]) {
+                    $out += "$($b.Action) uses $($s.Token)"
+                }
+            }
+        }
+    }
+    return ,@($out | Sort-Object -Unique)
 }
 
 $script:ValidPresets = @('left', 'right', 'up', 'down', 'forward', 'back',

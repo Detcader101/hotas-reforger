@@ -12,10 +12,10 @@
                                      "Token":  "axis0+",
                                      "Status":  "Responds"
                                  },
-                    "ThrottleRocker":  {
-                                           "Token":  "",
-                                           "Status":  "Dead"
-                                       },
+                    "StickTopLeft":  {
+                                         "Token":  "button1",
+                                         "Status":  "Responds"
+                                     },
                     "StickTrigger":  {
                                          "Token":  "button0",
                                          "Status":  "Responds"
@@ -44,30 +44,26 @@
                                        "Token":  "button8",
                                        "Status":  "Responds"
                                    },
-                    "AxisPitch":  {
-                                      "Token":  "axis1-",
-                                      "Status":  "Responds"
-                                  },
                     "ThrottleL2":  {
                                        "Token":  "button9",
                                        "Status":  "Responds"
                                    },
-                    "StickHat":  {
-                                     "Token":  "pov_up",
-                                     "Status":  "Responds"
-                                 },
-                    "AxisTwist":  {
-                                      "Token":  "axis5+",
-                                      "Status":  "Responds"
-                                  },
-                    "StickTopLeft":  {
-                                         "Token":  "button1",
-                                         "Status":  "Responds"
-                                     },
                     "ThrottleFaceLeft":  {
                                              "Token":  "button4",
                                              "Status":  "Responds"
                                          },
+                    "AxisTwist":  {
+                                      "Token":  "axis5+",
+                                      "Status":  "Responds"
+                                  },
+                    "StickHat":  {
+                                     "Token":  "pov_up",
+                                     "Status":  "Responds"
+                                 },
+                    "AxisPitch":  {
+                                      "Token":  "axis1-",
+                                      "Status":  "Responds"
+                                  },
                     "ThrottleFaceRight":  {
                                               "Token":  "button6",
                                               "Status":  "Responds"

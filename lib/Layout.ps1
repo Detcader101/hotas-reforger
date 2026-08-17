@@ -101,13 +101,15 @@ $script:ControlCatalogue = @(
        Fill  = @('FreelookToggle', 'VonDirectHold')
        Where = 'the button marked R2 on the throttle knob' }
 
-    # The two-way rocker is its own control, and on this unit it sends NOTHING.
-    # It stays in the catalogue so -Audit tests it and records that, rather than
-    # the tool quietly pretending it does not exist. A control that sends no
-    # input cannot be bound by this tool, by Reforger, or by anything else.
-    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Button'
+    # The two-way rocker is an ANALOGUE SLIDER, not a pair of buttons. It was
+    # catalogued as a button, which made the audit watch only for button presses
+    # and conclude the rocker sent nothing at all. It reports on winmm's U or V,
+    # which is why it needs a probe like any other axis.
+    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Axis'
        Label = 'Throttle rocker'
-       Where = 'the small two-way rocker on the throttle knob -- rock it either way' }
+       Where = 'the small two-way rocker on the throttle knob'
+       Probe = 'Push the throttle ROCKER fully one way and hold it.'
+       Note  = 'Thrustmaster wire this as a second rudder control, parallel to the twist grip' }
 
     # --- base ----------------------------------------------------------------
     @{ Id = 'BaseLeft';  Zone = 'Base'; Kind = 'Button'; Ps4 = 'Share'

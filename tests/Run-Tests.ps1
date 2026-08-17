@@ -60,6 +60,8 @@ function New-FakeMap {
     $map.Axes['AxisPitch']    = @{ Index = 1; Sign = '-' }   # inverted on purpose
     $map.Axes['AxisThrottle'] = @{ Index = 2; Sign = '+' }
     $map.Axes['AxisTwist']    = @{ Index = 5; Sign = '+' }
+    # The rocker is a slider on winmm U, which this tool maps to Reforger axis3.
+    $map.Axes['ThrottleRocker'] = @{ Index = 3; Sign = '+' }
     return $map
 }
 
@@ -119,12 +121,12 @@ $arrayHelpers = @('Get-ControlsByKind', 'Get-JobsByKind', 'Get-JobActionNames', 
                   'Get-BindingConflict', 'Get-TierBActions')
 
 $axesDirect = Get-ControlsByKind 'Axis'
-Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.Count -eq 4) `
+Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.Count -eq 5) `
       ("got $($axesDirect.Count)")
-Check 'each element is a control, not a nested array' ($axesDirect[0].Id -eq 'AxisRoll')
+Check 'each element is a control, not a nested array' ((@($axesDirect | ForEach-Object { $_.Id }) -contains 'AxisRoll'))
 
 $buttonsDirect = Get-ControlsByKind 'Button'
-Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 14) ("got $($buttonsDirect.Count)")
+Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 13) ("got $($buttonsDirect.Count)")
 
 $hatDirect = Get-ControlsByKind 'Hat'
 Check 'a single-element result is still an array' ($hatDirect.Count -eq 1 -and $hatDirect[0].Id -eq 'StickHat')
@@ -346,10 +348,10 @@ Group 'Input tokens'
 
 foreach ($t in @('joystick0:button0', 'joystick0:button11', 'joystick0:axis0+', 'joystick0:axis5-',
                  'joystick0:pov_up', 'joystick0:pov_down', 'joystick0:pov_left', 'joystick0:pov_right',
-                 'joystick1:button3')) {
+                 'joystick1:button3', 'joystick0:axis6+', 'joystick0:axis9-')) {
     Check "'$t' is a valid token" (Test-InputToken $t)
 }
-foreach ($t in @('joystick0:axis6+', 'joystick0:axis0', 'joystick0:pov_upleft', 'keyboard:space',
+foreach ($t in @('joystick0:axis10+', 'joystick0:axis0', 'joystick0:pov_upleft', 'keyboard:space',
                  'joystick0:button', 'axis0+', 'joystick0:axis0*')) {
     Check "'$t' is rejected" (-not (Test-InputToken $t))
 }
@@ -402,21 +404,36 @@ Check 'plain freelook does not carry the single-click filter' (-not $byName['Fre
 # action asks for double that input. No shipped profile can do this now, but
 # the guard stays: a hand-edited device map or profile can, and the symptom
 # would be an axis that reaches full deflection at half travel.
-$twoOnOne = Copy-Profile $profile
-$twoOnOne.Bind['AxisPitch'] = 'AntiTorque'      # two controls, same job
+# Built explicitly rather than copied from a shipped profile, so that changing
+# what the shipped profiles bind cannot silently change what this asserts.
+$twoOnOne = @{ Id = 'test'; Label = 'test'; Desc = ''
+               Bind = @{ AxisTwist = 'AntiTorque'; AxisPitch = 'AntiTorque' } }
 
-$sameAxis = New-FakeMap
-$sameAxis.Axes['AxisPitch'] = @{ Index = 5; Sign = '+' }   # ...and the same axis
+$sameAxis = New-DeviceMap
+$sameAxis.Axes['AxisTwist'] = @{ Index = 5; Sign = '+' }
+$sameAxis.Axes['AxisPitch'] = @{ Index = 5; Sign = '+' }   # same axis as the twist
 $sameAxisBindings = Resolve-Bindings -Map $sameAxis -Profile $twoOnOne
 $anti = @($sameAxisBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
-Check 'the same token twice on one action is merged, not doubled' ($anti.Sources.Count -eq 1) ("got " + $anti.Sources.Count + " job=" + $twoOnOne.Bind['AxisPitch'] + " tokens=" + (($anti.Sources | ForEach-Object { $_.Token }) -join ','))
+Check 'the same token twice on one action is merged, not doubled' ($anti.Sources.Count -eq 1) `
+      ("got " + $anti.Sources.Count + " tokens=" + (($anti.Sources | ForEach-Object { $_.Token }) -join ','))
 
-# Two genuinely different axes driving one action is legitimate, and summed.
-$splitBindings = Resolve-Bindings -Map (New-FakeMap) -Profile $twoOnOne
+# Two genuinely different axes driving one action is legitimate, and summed --
+# which is exactly how the twist grip and the throttle rocker both give rudder.
+$splitMap = New-DeviceMap
+$splitMap.Axes['AxisTwist'] = @{ Index = 5; Sign = '+' }
+$splitMap.Axes['AxisPitch'] = @{ Index = 3; Sign = '+' }
+$splitBindings = Resolve-Bindings -Map $splitMap -Profile $twoOnOne
 $antiSplit = @($splitBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
-Check 'two different axes on one action are both kept' ($antiSplit.Sources.Count -eq 2) ("got " + $antiSplit.Sources.Count + " tokens=" + (($antiSplit.Sources | ForEach-Object { $_.Token }) -join ','))
+Check 'two different axes on one action are both kept' ($antiSplit.Sources.Count -eq 2) `
+      ("got " + $antiSplit.Sources.Count + " tokens=" + (($antiSplit.Sources | ForEach-Object { $_.Token }) -join ','))
 Check 'and they are the two different tokens' `
       (@($antiSplit.Sources | ForEach-Object { $_.Token } | Sort-Object -Unique).Count -eq 2)
+
+# The shipped pilot profile does exactly this: twist and rocker both on rudder.
+$pilotBindings = Resolve-Bindings -Map (New-FakeMap) -Profile (Get-Profile 'pilot')
+$dualRudder = @($pilotBindings | Where-Object { $_.Action -eq 'HelicopterAntiTorqueRight' })[0]
+Check 'the pilot profile gives rudder two sources -- twist and rocker' ($dualRudder.Sources.Count -eq 2) `
+      ((($dualRudder.Sources | ForEach-Object { $_.Token }) -join ','))
 
 Check 'every source records which control it came from' `
       (@($bindings | ForEach-Object { $_.Sources } | Where-Object { -not $_.ControlId }).Count -eq 0)
@@ -625,7 +642,7 @@ $dupIdProblems = Test-Config ($dupAction -replace '3333333333333333', '111111111
 Check 'a duplicated input source id is caught' `
       (@($dupIdProblems | Where-Object { $_ -match 'id .* used more than once' }).Count -gt 0) ($dupIdProblems -join '; ')
 
-$badTokenProblems = Test-Config ($dupAction -replace 'joystick0:button1"', 'joystick0:axis9+"')
+$badTokenProblems = Test-Config ($dupAction -replace 'joystick0:button1"', 'joystick0:slider0"')
 Check 'a bad input token is caught' `
       (@($badTokenProblems | Where-Object { $_ -match 'unrecognised input token' }).Count -gt 0) ($badTokenProblems -join '; ')
 
