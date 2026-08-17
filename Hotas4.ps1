@@ -52,6 +52,8 @@ param(
     [switch] $Watch,
     [switch] $Audit,
     [switch] $Register,
+    [switch] $Learn,
+    [switch] $Reset,
     [switch] $KeyTest,
     [switch] $CheckLog,
     [switch] $Restore,
@@ -1232,6 +1234,91 @@ function Invoke-Register {
     return 1
 }
 
+function Invoke-Learn {
+    <#
+        Learn an action's real name from Reforger, instead of guessing it.
+
+        Every wrong call this tool has made came from inferring what the engine
+        would accept -- which context an action lives in, whether a byte-order
+        mark is tolerated, whether "toggle" is a filter preset. Each time the
+        fix was to trust only what Reforger had written itself.
+
+        This makes that a procedure. Snapshot InputUserSettings.conf, rebind the
+        thing you want in the game's own controls screen, and the diff names the
+        action exactly -- spelling, context and filter preset included, straight
+        from the engine.
+    #>
+    Write-Title 'LEARN' "read an action's real name out of Reforger"
+
+    $settings = Get-InputUserSettingsPath
+    if (-not $settings) { Write-Bad 'Cannot find InputUserSettings.conf.'; return 1 }
+    $snapPath = Join-Path $script:Root 'learn-snapshot.json'
+
+    $now = Read-Config $settings
+    $current = @{}
+    foreach ($n in $now.Actions.Keys) {
+        $current[$n] = (@($now.Actions[$n] | ForEach-Object { "$($_.Token)/$($_.Preset)" } | Sort-Object) -join ' + ')
+    }
+
+    if ($Reset -or -not (Test-Path $snapPath)) {
+        Write-TextFile -Path $snapPath -Text ($current | ConvertTo-Json -Depth 4)
+        Write-Field 'snapshot taken' "$($current.Count) rebind(s) currently in the file"
+        Write-Host ''
+        Write-Section 'NOW GO AND DO THIS'
+        Write-Strong '1. Launch Reforger.'
+        Write-Strong '2. Settings -> Controls.'
+        Write-Strong '3. Find the action you want -- the helicopter sight, say -- and'
+        Write-Strong '   bind it to any spare KEY. A keyboard key is fine; the point is'
+        Write-Strong '   to make the game write the action name down.'
+        Write-Strong '4. Quit the game so it saves.'
+        Write-Strong '5. Run:  .\Hotas4.ps1 -Learn'
+        Write-Host ''
+        Write-Note 'The game records the exact name, context and filter preset it uses.'
+        Write-Note 'Nothing that comes out of this is a guess.'
+        return 0
+    }
+
+    try { $raw = Get-Content -Raw -Path $snapPath | ConvertFrom-Json } catch { $raw = $null }
+    $before = @{}
+    if ($raw) { foreach ($p in $raw.PSObject.Properties) { $before[$p.Name] = [string]$p.Value } }
+
+    $added = @()
+    $changed = @()
+    foreach ($n in $current.Keys) {
+        if (-not $before.ContainsKey($n)) { $added += $n }
+        elseif ($before[$n] -ne $current[$n]) { $changed += $n }
+    }
+
+    Write-Field 'snapshot' "$($before.Count) rebind(s)"
+    Write-Field 'now' "$($current.Count) rebind(s)"
+
+    if ($added.Count -eq 0 -and $changed.Count -eq 0) {
+        Write-Host ''
+        Write-Warn 'Nothing changed since the snapshot.'
+        Write-Note 'Reforger only writes an action here once you REBIND it, so a default'
+        Write-Note 'binding you left alone will not appear. Change it to something else,'
+        Write-Note 'quit, and run this again. -Reset takes a fresh snapshot.'
+        return 0
+    }
+
+    Write-Host ''
+    Write-Section 'REFORGER NAMED THESE'
+    foreach ($n in $added) {
+        Write-Host ('    ' + $n.PadRight(30)) -NoNewline -ForegroundColor Green
+        Write-Host $current[$n] -ForegroundColor Gray
+    }
+    foreach ($n in $changed) {
+        Write-Host ('    ' + $n.PadRight(30)) -NoNewline -ForegroundColor Cyan
+        Write-Host ($before[$n] + '   ->   ' + $current[$n]) -ForegroundColor Gray
+    }
+
+    Write-Host ''
+    Write-Note 'That is the action name and filter preset the engine itself uses --'
+    Write-Note 'Tier A by definition. Tell me the name and I will bind it to a control,'
+    Write-Note 'or add it to $script:Jobs in lib\Reforger.ps1 yourself.'
+    return 0
+}
+
 function Invoke-Bind {
     <#
         Record a control's input token by hand.
@@ -1539,6 +1626,7 @@ elseif ($Show)     { $exit = Invoke-Show }
 elseif ($Verify)   { $exit = Invoke-Verify }
 elseif ($Watch)    { $exit = Invoke-Watch }
 elseif ($Register) { $exit = Invoke-Register }
+elseif ($Learn)    { $exit = Invoke-Learn }
 elseif ($Bind)     { $exit = Invoke-Bind -Pairs $Bind }
 elseif ($Audit)    { $exit = Invoke-Audit }
 elseif ($KeyTest)  { $exit = Invoke-KeyTest }
