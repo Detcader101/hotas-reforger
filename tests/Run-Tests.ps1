@@ -544,16 +544,22 @@ Check 'a global job is live in every seat' `
 Check 'a job mixing turret and character actions is live for a pilot via the turret half' `
       (Test-JobLiveInSeat -Job (Get-Job 'Fire') -Seat 'Pilot')
 
-# An explicit Seats list overrides the context-derived answer, for the cases
-# context alone gets wrong: a gunship pilot reaches turret actions through the
-# nose gun's compartment, even though HelicopterContext and TurretContext are
-# separate. Without the override this job would be judged dead in the cockpit.
-$sights = Get-Job 'SightsToggle'
+# An explicit Seats list overrides the context-derived answer, for cases the
+# context alone gets wrong. Built here rather than taken from a shipped job, so
+# that changing what the shipped jobs do cannot quietly stop testing this.
+$declared = @{ Id = 'x'; Kind = 'Button'; Tier = 'A'; Label = 'x'; Desc = 'x'
+               Seats = @('Pilot', 'Gunner')
+               Actions = @(@{ Name = 'SomethingTurretish'; Preset = 'click'; Context = 'Turret' }) }
 Check 'a declared-seat job is live where it says it is' `
-      ((Test-JobLiveInSeat -Job $sights -Seat 'Pilot') -and (Test-JobLiveInSeat -Job $sights -Seat 'Gunner'))
-Check 'and dead where it does not' (-not (Test-JobLiveInSeat -Job $sights -Seat 'Foot'))
-Check 'its context alone would have said dead in the pilot seat' `
-      ((Get-JobContext $sights) -contains 'Turret' -and (Get-JobContext $sights) -notcontains 'Global')
+      ((Test-JobLiveInSeat -Job $declared -Seat 'Pilot') -and (Test-JobLiveInSeat -Job $declared -Seat 'Gunner'))
+Check 'and dead where it does not' (-not (Test-JobLiveInSeat -Job $declared -Seat 'Foot'))
+
+# The sight action was guessed as TurretADS from the binary and was wrong. It
+# is a Helicopter action, learned from Reforger writing it into its own file.
+$sights = Get-Job 'SightsToggle'
+Check 'the helicopter sight is a helicopter action, not a turret one' `
+      ((Get-JobContext $sights) -contains 'Helicopter')
+Check 'and it is Tier A, because the game named it' ($sights.Tier -eq 'A')
 
 # The rule the pilot profile exists to satisfy.
 $pilot = Get-Profile 'pilot'
@@ -977,6 +983,27 @@ Check 'a config with an unknown action parses' ($parsedMod.Actions.Contains('Som
 $unknownBlocks = Get-UnknownActionBlock $parsedMod
 Check 'the unknown action is the only one flagged as unknown' ($unknownBlocks.Count -eq 1)
 Check 'the unknown block keeps its text' ($unknownBlocks[0] -match 'SomeModAction')
+
+# An action THIS TOOL wrote, whose job has since been renamed or corrected, is
+# not somebody else's binding. It stopped matching the job table, was treated as
+# a mod's, and was preserved for ever -- TurretADS sat on the sights button
+# alongside HelicopterSightDeploy, its own replacement, for exactly this reason.
+# The input-source id prefix tells the two cases apart.
+$staleText = $text -replace '(?m)^ \}\r?\n\}\r?\n?$', ''
+$staleText += "  Action ARetiredActionOfOurs {`r`n   InputSource InputSourceSum `"{7CB1F0A54DFFFF01}`" {`r`n    Sources {`r`n     InputSourceValue `"{7CB1F0A54DFFFF02}`" {`r`n      FilterPreset `"click`"`r`n      Input `"joystick0:button2`"`r`n     }`r`n    }`r`n   }`r`n  }`r`n }`r`n}`r`n"
+$stalePath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-stale-{0}.conf" -f [guid]::NewGuid())
+Set-Content -Path $stalePath -Value $staleText -Encoding UTF8 -NoNewline
+$staleParsed = Read-Config $stalePath
+
+Check 'an action we wrote but no longer produce is identified as stale' `
+      ((Get-StaleOwnActionName $staleParsed) -contains 'ARetiredActionOfOurs')
+Check 'and is NOT preserved as if it were a mod' `
+      (-not ((Get-UnknownActionBlock $staleParsed) -match 'ARetiredActionOfOurs'))
+Check "a genuine mod's block is still preserved" `
+      ((Get-UnknownActionBlock $parsedMod) -match 'SomeModAction')
+Check 'and a mod block is never called stale' `
+      ((Get-StaleOwnActionName $parsedMod) -notcontains 'SomeModAction')
+Remove-Item $stalePath -Force
 
 $rebuilt = Build-Config -Bindings $bindings -Preserve $unknownBlocks
 Check 'the unknown action survives a rebuild' ($rebuilt -match 'SomeModAction')

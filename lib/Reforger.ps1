@@ -144,16 +144,15 @@ $script:Jobs = @(
        Desc  = 'reloads a turret and nothing else'
        Actions = @(@{ Name = 'TurretReload'; Preset = 'click'; Context = 'Turret' }) }
 
-    @{ Id = 'SightsToggle'; Kind = 'Button'; Tier = 'B'
-       Label = 'Gun sights (toggle)'
-       Desc  = 'toggles the gun sight in or out'
-       # Seats overrides the context-derived answer. A helicopter pilot flying
-       # something with a nose gun occupies a turret compartment for that gun,
-       # so TurretADS does reach him -- the blanket "turret is dead in the pilot
-       # seat" rule is true of a transport and wrong of a gunship.
-       Seats = @('Pilot', 'Gunner')
-       Note  = 'does nothing in an aircraft whose pilot has no gun'
-       Actions = @(@{ Name = 'TurretADS'; Preset = 'click'; Context = 'Turret' }) }
+    @{ Id = 'SightsToggle'; Kind = 'Button'; Tier = 'A'
+       Label = 'Helicopter sight'
+       Desc  = 'deploys the pilot sighting system'
+       # Learned from Reforger itself via -Learn, not inferred. It is a
+       # HELICOPTER action, not a turret one, and it does not appear anywhere in
+       # ArmaReforgerSteam.exe -- it is script-side, like GadgetMap and
+       # VONChannel. Which is exactly why extracting names from the binary found
+       # TurretADS instead and got it wrong.
+       Actions = @(@{ Name = 'HelicopterSightDeploy'; Preset = 'click'; Context = 'Helicopter' }) }
 
     @{ Id = 'Sights'; Kind = 'Button'; Tier = 'B'
        Label = 'Sights / ADS'
@@ -1095,12 +1094,43 @@ function Set-RegisteredConfig {
 }
 
 function Get-UnknownActionBlock {
-    <# Raw blocks for actions no job in this tool produces. #>
+    <#
+        Raw blocks for actions that are somebody else's -- a mod's, or a newer
+        build's -- so a rewrite does not delete them.
+
+        "Not in the job table" is NOT sufficient to mean somebody else's. An
+        action this tool wrote in an earlier run becomes unrecognised the moment
+        its job changes, and would then be preserved for ever: TurretADS stayed
+        bound to the sights button alongside its own replacement, because the
+        job had been corrected to HelicopterSightDeploy and the old name no
+        longer matched anything.
+
+        The input-source id prefix settles it. Every id this tool generates
+        carries it, and no id Reforger generates does, so a block carrying it is
+        ours to replace and a block without it is not ours to touch.
+    #>
     param($Parsed)
     $known = @{}
     foreach ($j in $script:Jobs) { foreach ($n in (Get-JobActionNames $j)) { $known[$n] = $true } }
     $out = @()
-    foreach ($name in $Parsed.Actions.Keys) { if (-not $known.ContainsKey($name)) { $out += $Parsed.Raw[$name] } }
+    foreach ($name in $Parsed.Actions.Keys) {
+        if ($known.ContainsKey($name)) { continue }
+        if ($Parsed.Raw[$name] -match [regex]::Escape($script:IdPrefix)) { continue }   # ours, stale
+        $out += $Parsed.Raw[$name]
+    }
+    return ,$out
+}
+
+function Get-StaleOwnActionName {
+    <# Actions we wrote whose job no longer exists -- to be dropped, not kept. #>
+    param($Parsed)
+    $known = @{}
+    foreach ($j in $script:Jobs) { foreach ($n in (Get-JobActionNames $j)) { $known[$n] = $true } }
+    $out = @()
+    foreach ($name in $Parsed.Actions.Keys) {
+        if ($known.ContainsKey($name)) { continue }
+        if ($Parsed.Raw[$name] -match [regex]::Escape($script:IdPrefix)) { $out += $name }
+    }
     return ,$out
 }
 
