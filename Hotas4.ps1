@@ -211,7 +211,7 @@ function Invoke-Identify {
 
 function Invoke-IdentifyAxes {
     param($Stick, $Map)
-    $axes = @(Get-ControlsByKind 'Axis')
+    $axes = Get-ControlsByKind 'Axis'
     $i = 0
     while ($i -lt $axes.Count) {
         $c = $axes[$i]
@@ -234,12 +234,19 @@ function Invoke-IdentifyAxes {
         }
 
         if ($r.Kind -eq 'Button') {
-            # Not a failure. This is how the tool learns that a rocker some
-            # units expose as an axis is a pair of buttons on this one.
-            Write-Warn "That came through as button$($r.Index), not an axis."
-            Write-Note 'It will be picked up in the button pass instead.'
-            $Map.Axes.Remove($c.Id)
-            $i++
+            if (Get-Opt $c 'Optional' $false) {
+                # Not a failure, and the reason the rocker is marked optional.
+                # This is how the tool learns that a control some units expose
+                # as an analogue axis is a pair of buttons on this one.
+                Write-Warn "That came through as button$($r.Index), not an axis."
+                Write-Note 'So this unit has it as buttons. The button pass will pick it up.'
+                $Map.Axes.Remove($c.Id)
+                $i++
+                continue
+            }
+            # A stray press during a real axis probe. Retrying costs nothing;
+            # skipping the axis would lose it silently.
+            Write-Warn "That was button$($r.Index), not an axis. Try again."
             continue
         }
         if ($r.Kind -eq 'Hat') { Write-Warn 'That was the hat switch. Try again.'; continue }
@@ -274,7 +281,7 @@ function Invoke-IdentifyHat {
     Write-Section 'HAT SWITCH'
     Write-Strong 'Push the HAT on top of the stick head in any direction.'
     Write-Host ''
-    $r = Wait-Control -Id $Stick.Id -Accept 'Any'
+    $r = Wait-Control -Id $Stick.Id -Accept 'Digital'
     if ($r.Kind -eq 'Hat') {
         Write-Good ("read as the hat, direction: " + ($r.Directions -join ' + '))
         $Map.Hat = $true
@@ -289,7 +296,7 @@ function Invoke-IdentifyHat {
 
 function Invoke-IdentifyButtons {
     param($Stick, $Map)
-    $buttons = @(Get-ControlsByKind 'Button')
+    $buttons = Get-ControlsByKind 'Button'
     $i = 0
     while ($i -lt $buttons.Count) {
         $c = $buttons[$i]
@@ -301,7 +308,7 @@ function Invoke-IdentifyButtons {
         if ($c.ContainsKey('Ps4')) { Write-Note "(the $($c.Ps4) button, if you know the PlayStation layout)" }
         Write-Host ''
 
-        $r = Wait-Control -Id $Stick.Id -Accept 'Any'
+        $r = Wait-Control -Id $Stick.Id -Accept 'Digital'
 
         if ($r.Kind -eq 'Gone')    { Write-Bad 'The stick stopped responding.'; return }
         if ($r.Kind -eq 'Timeout') { Write-Warn 'Nothing read. Skipping.'; $i++; continue }

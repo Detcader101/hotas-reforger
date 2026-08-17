@@ -100,6 +100,52 @@ $povs = @($hatJob.Actions | ForEach-Object { $_.Pov })
 Check 'the hat job covers all four directions' (($povs | Sort-Object -Unique).Count -eq 4)
 
 # =============================================================================
+Group 'Array-returning helpers'
+# =============================================================================
+#
+# These return with a leading comma so a one- or zero-element result survives
+# PowerShell unrolling it on the way out. That makes the value already an array,
+# and wrapping the CALL in @() then produces a one-element array holding the
+# array -- silently turning a list of five axes into a list of one. That is a
+# real bug this tool shipped with for an afternoon, so both halves are asserted:
+# the functions return proper arrays, and no call site re-wraps them.
+
+$arrayHelpers = @('Get-ControlsByKind', 'Get-JobsByKind', 'Get-JobActionNames', 'Get-Coverage',
+                  'Get-UnmappedButtonIndex', 'Get-PressedButton', 'Get-HatNames', 'Get-DeviceWarning',
+                  'Get-Joystick', 'Resolve-Bindings', 'Test-Config', 'Get-UnknownActionBlock',
+                  'Get-BindingConflict', 'Get-TierBActions')
+
+$axesDirect = Get-ControlsByKind 'Axis'
+Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.Count -eq 5) `
+      ("got $($axesDirect.Count)")
+Check 'each element is a control, not a nested array' ($axesDirect[0].Id -eq 'AxisRoll')
+
+$buttonsDirect = Get-ControlsByKind 'Button'
+Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 14) ("got $($buttonsDirect.Count)")
+
+$hatDirect = Get-ControlsByKind 'Hat'
+Check 'a single-element result is still an array' ($hatDirect.Count -eq 1 -and $hatDirect[0].Id -eq 'StickHat')
+
+$noneDirect = Get-ControlsByKind 'Nonsense'
+Check 'an empty result is still an array' ($noneDirect.Count -eq 0)
+
+$doubleWrapped = @()
+foreach ($f in (Get-ChildItem -Path $Root -Recurse -Include *.ps1)) {
+    $n = 0
+    foreach ($line in (Get-Content $f.FullName)) {
+        $n++
+        # A pipeline inside the @() is fine -- that unrolls and recollects.
+        if ($line -match '\|') { continue }
+        foreach ($h in $arrayHelpers) {
+            if ($line -match [regex]::Escape("@($h ") -or $line -match [regex]::Escape("@($h)")) {
+                $doubleWrapped += "$($f.Name):$n  $h"
+            }
+        }
+    }
+}
+Check 'no call site wraps an array-returning helper in @()' ($doubleWrapped.Count -eq 0) ($doubleWrapped -join ' | ')
+
+# =============================================================================
 Group 'Completeness -- the promise this tool exists to keep'
 # =============================================================================
 

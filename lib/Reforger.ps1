@@ -670,7 +670,7 @@ function Get-BindingConflict {
     $context = @{}
     foreach ($j in $script:Jobs) {
         foreach ($key in @('Actions', 'Pos', 'Neg')) {
-            foreach ($a in @(Get-Opt $j $key @())) { $context[$a.Name] = $a.Context }
+            foreach ($a in (Get-Opt $j $key @())) { $context[$a.Name] = $a.Context }
         }
     }
 

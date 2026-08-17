@@ -244,10 +244,19 @@ function Wait-DeviceStill {
 <#
     Wait for the user to actuate one control and report what it actually was.
 
-    The caller says what it expects ('Button', 'Axis', 'Hat', or 'Any'); this
-    reports what the hardware did. Those two disagreeing is information, not an
-    error -- it is how the tool discovers that a rocker some other stick exposes
-    as an axis is two buttons on this one.
+    The caller says what it will look at:
+
+        Any       buttons, hat and axes
+        Digital   buttons and hat, ignoring axes -- for the button pass, where
+                  a hand resting on the stick should not count as an answer
+        Button    buttons only
+        Axis      axes only
+        Hat       hat only
+
+    What comes back is what the hardware actually did, which may not be what the
+    caller expected. That disagreement is information, not an error: it is how
+    the tool discovers that a rocker some sticks expose as an analogue axis is
+    a pair of buttons on this one.
 
     Returns a hashtable with Kind = Button | Axis | Hat | Key.
 #>
@@ -275,7 +284,7 @@ function Wait-Control {
         if (-not $now) { return @{ Kind = 'Gone' } }
         if ($OnTick) { & $OnTick $now }
 
-        if ($Accept -eq 'Any' -or $Accept -eq 'Button') {
+        if ($Accept -eq 'Any' -or $Accept -eq 'Digital' -or $Accept -eq 'Button') {
             $pressed = Get-PressedButton -Before $baselineButtons -Now $now.Buttons
             if ($pressed.Count -gt 0) { return @{ Kind = 'Button'; Index = $pressed[0] } }
             # Let go of a button held over from the last step and it stops
@@ -283,7 +292,7 @@ function Wait-Control {
             $baselineButtons = $baselineButtons -band $now.Buttons
         }
 
-        if ($Accept -eq 'Any' -or $Accept -eq 'Hat') {
+        if ($Accept -eq 'Any' -or $Accept -eq 'Digital' -or $Accept -eq 'Hat') {
             $names = Get-HatNames $now.Hat
             if ($names.Count -gt 0) { return @{ Kind = 'Hat'; Directions = $names } }
         }
