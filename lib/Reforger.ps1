@@ -270,11 +270,15 @@ $script:Profiles = @(
 
             ThrottleFaceLeft  = 'Map'
             ThrottleFaceDown  = 'WheelBrake'
-            ThrottleFaceRight = 'CameraType'
+            ThrottleFaceRight = 'ParkingBrake'
             ThrottleFaceUp    = 'Autohover'
 
-            RockerR2 = 'VonDirectHold'
-            RockerL2 = 'ParkingBrake'
+            StickR3    = 'CameraType'
+            ThrottleL2 = 'VonDirectHold'
+            ThrottleR2 = 'FreelookToggle'
+
+            # Sends no input on this hardware. Recorded, not forgotten.
+            ThrottleRocker = 'Free'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -302,8 +306,10 @@ $script:Profiles = @(
             ThrottleFaceRight = 'CameraType'
             ThrottleFaceUp    = 'Autohover'
 
-            RockerR2 = 'TurretNextWeaponOnly'
-            RockerL2 = 'TurretReloadOnly'
+            StickR3    = 'CameraType'
+            ThrottleL2 = 'VonDirectHold'
+            ThrottleR2 = 'FreelookToggle'
+            ThrottleRocker = 'Free'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -332,8 +338,10 @@ $script:Profiles = @(
             ThrottleFaceRight = 'CameraType'
             ThrottleFaceUp    = 'Autohover'
 
-            RockerR2 = 'NextWeapon'
-            RockerL2 = 'Reload'
+            StickR3    = 'CameraType'
+            ThrottleL2 = 'VonDirectHold'
+            ThrottleR2 = 'FreelookToggle'
+            ThrottleRocker = 'Free'
 
             BaseLeft  = 'EngineStart'
             BaseRight = 'EngineStop'
@@ -362,8 +370,10 @@ $script:Profiles = @(
             ThrottleFaceRight = 'CameraType'
             ThrottleFaceUp    = 'Autohover'
 
-            RockerR2 = 'TurretNextWeaponOnly'
-            RockerL2 = 'TurretReloadOnly'
+            StickR3    = 'CameraType'
+            ThrottleL2 = 'VonDirectHold'
+            ThrottleR2 = 'Free'
+            ThrottleRocker = 'Free'
 
             BaseLeft  = 'Free'
             BaseRight = 'Free'

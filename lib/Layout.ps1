@@ -58,6 +58,12 @@ $script:ControlCatalogue = @(
        Fill  = @('Freelook', 'CameraType', 'FreelookToggle')
        Where = 'the large button on the side face of the grip, under your thumb' }
 
+    @{ Id = 'StickR3';        Zone = 'Stick'; Kind = 'Button'; Ps4 = 'R3'
+       Label = 'Stick R3 button'
+       Fill  = @('CameraType', 'FreelookToggle')
+       Where = 'the button marked R3 on the stick' }
+
+    # One hat, on the stick head. There is no second hat on this unit.
     @{ Id = 'StickHat';       Zone = 'Stick'; Kind = 'Hat'
        Label = 'Hat switch'
        Where = 'the multi-direction hat on the top of the stick head' }
@@ -81,17 +87,27 @@ $script:ControlCatalogue = @(
        Fill  = @('Autohover', 'Sights')
        Where = 'the top button of the four in a diamond on the throttle' }
 
-    # The small two-way rocker on the throttle. It is two ordinary buttons, not
-    # an analogue axis, and Thrustmaster prints L2 and R2 on the two ends.
-    @{ Id = 'RockerR2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'R2'
-       Label = 'Throttle rocker - R2'
-       Fill  = @('TurretNextWeaponOnly', 'NextWeapon')
-       Where = 'the small two-way rocker on the throttle, pressed on the R2 end' }
+    # L2 and R2 are DEDICATED BUTTONS on the throttle knob. They are not the
+    # rocker. An earlier version of this file conflated the two -- it labelled
+    # these as the rocker's two ends -- which meant the rocker was never
+    # actually tested and these two were described as something they are not.
+    @{ Id = 'ThrottleL2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'L2'
+       Label = 'Throttle L2 button'
+       Fill  = @('VonDirectHold', 'FreelookToggle')
+       Where = 'the button marked L2 on the throttle knob' }
 
-    @{ Id = 'RockerL2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'L2'
-       Label = 'Throttle rocker - L2'
-       Fill  = @('TurretReloadOnly', 'Reload')
-       Where = 'the same rocker, pressed on the L2 end' }
+    @{ Id = 'ThrottleR2'; Zone = 'Throttle'; Kind = 'Button'; Ps4 = 'R2'
+       Label = 'Throttle R2 button'
+       Fill  = @('FreelookToggle', 'VonDirectHold')
+       Where = 'the button marked R2 on the throttle knob' }
+
+    # The two-way rocker is its own control, and on this unit it sends NOTHING.
+    # It stays in the catalogue so -Audit tests it and records that, rather than
+    # the tool quietly pretending it does not exist. A control that sends no
+    # input cannot be bound by this tool, by Reforger, or by anything else.
+    @{ Id = 'ThrottleRocker'; Zone = 'Throttle'; Kind = 'Button'
+       Label = 'Throttle rocker'
+       Where = 'the small two-way rocker on the throttle knob -- rock it either way' }
 
     # --- base ----------------------------------------------------------------
     @{ Id = 'BaseLeft';  Zone = 'Base'; Kind = 'Button'; Ps4 = 'Share'
@@ -235,12 +251,31 @@ function Get-Coverage {
         Status is one of
           Bound       named and has at least one action
           Free        named and deliberately left with no action
+          NoInput     -Audit found it sends nothing; not bindable by anything
           Unassigned  named but nothing was ever decided about it
           Unnamed     the device reports it and -Identify has never seen it
+
+        NoInput is why $Audit is here. The throttle rocker on a Hotas 4 sends
+        no input at all, so demanding a job for it would leave the completeness
+        check permanently unsatisfiable -- and the honest report is "this cannot
+        be bound", not "you forgot to bind this".
     #>
-    param($Map, $Profile, [int] $ButtonCount, [bool] $HasHat)
+    param($Map, $Profile, [int] $ButtonCount, [bool] $HasHat, $Audit)
 
     $rows = @()
+
+    # Controls the audit found to be electrically dead.
+    $noInput = @{}
+    if ($Audit) {
+        foreach ($c in $script:ControlCatalogue) {
+            if ((Get-AuditStatus -State $Audit -Id $c.Id) -eq 'Dead') { $noInput[$c.Id] = $true }
+        }
+    }
+    foreach ($id in $noInput.Keys) {
+        $c = Get-Control $id
+        $rows += @{ Token = '-'; ControlId = $id; Label = $c.Label; Zone = $c.Zone
+                    Kind = $c.Kind; Status = 'NoInput'; JobId = $null }
+    }
 
     foreach ($i in 0..($ButtonCount - 1)) {
         $id = $null
@@ -301,6 +336,11 @@ function New-CoverageRow {
 }
 
 function Test-CoverageComplete {
+    <#
+        NoInput and Free both pass. Free is a decision; NoInput is a fact about
+        the hardware. Neither is an oversight, which is the only thing this is
+        looking for.
+    #>
     param($Rows)
     foreach ($r in $Rows) { if ($r.Status -eq 'Unnamed' -or $r.Status -eq 'Unassigned') { return $false } }
     return $true

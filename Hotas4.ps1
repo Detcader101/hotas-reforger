@@ -428,7 +428,7 @@ function Show-DeviceMap {
 
 function Show-Coverage {
     param($Rows, $Profile)
-    $colours = @{ Bound = 'Gray'; Free = 'DarkGray'; Unassigned = 'Yellow'; Unnamed = 'Red' }
+    $colours = @{ Bound = 'Gray'; Free = 'DarkGray'; NoInput = 'DarkYellow'; Unassigned = 'Yellow'; Unnamed = 'Red' }
 
     foreach ($zone in @('Stick', 'Throttle', 'Base', 'Unknown', 'Other')) {
         $inZone = @($Rows | Where-Object { $_.Zone -eq $zone })
@@ -438,6 +438,7 @@ function Show-Coverage {
             $what = Get-JobLabel $r.JobId
             if ($r.Status -eq 'Unassigned') { $what = 'NOTHING -- no job assigned' }
             if ($r.Status -eq 'Unnamed')    { $what = 'NOT IDENTIFIED -- run -Identify' }
+            if ($r.Status -eq 'NoInput')    { $what = 'SENDS NO INPUT -- cannot be bound by anything' }
             $tier = ''
             $job = Get-Job $r.JobId
             if ($job -and $job.Tier -eq 'B') { $tier = '  [unconfirmed]' }
@@ -464,7 +465,10 @@ function Show-Coverage {
 
 function Get-CoverageForCurrent {
     param($Stick, $Map, $Profile)
-    return (Get-Coverage -Map $Map -Profile $Profile -ButtonCount $Stick.ButtonCount -HasHat $Stick.HasHat)
+    # The audit is optional. Without it a control that sends nothing looks like
+    # a control nobody bound, which is the wrong complaint.
+    $audit = Import-AuditState $script:AuditPath
+    return (Get-Coverage -Map $Map -Profile $Profile -ButtonCount $Stick.ButtonCount -HasHat $Stick.HasHat -Audit $audit)
 }
 
 # =============================================================================

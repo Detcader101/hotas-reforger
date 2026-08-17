@@ -50,9 +50,11 @@ function New-FakeMap {
     $map.Device = 'T.Flight Hotas 4 (test)'
     $map.Verified = $true
     $map.Hat = $true
+    # Twelve driver indices. StickR3 and ThrottleRocker are deliberately absent:
+    # the rocker sends nothing on real hardware, and R3 is not yet confirmed.
     $order = @('StickTrigger', 'StickTopLeft', 'StickTopRight', 'StickSide',
                'ThrottleFaceLeft', 'ThrottleFaceDown', 'ThrottleFaceRight', 'ThrottleFaceUp',
-               'RockerR2', 'RockerL2', 'BaseLeft', 'BaseRight')
+               'ThrottleR2', 'ThrottleL2', 'BaseLeft', 'BaseRight')
     for ($i = 0; $i -lt $order.Count; $i++) { $map.Buttons["$i"] = $order[$i] }
     $map.Axes['AxisRoll']     = @{ Index = 0; Sign = '+' }
     $map.Axes['AxisPitch']    = @{ Index = 1; Sign = '-' }   # inverted on purpose
@@ -122,7 +124,7 @@ Check 'an unwrapped call returns every axis, not a single wrapper' ($axesDirect.
 Check 'each element is a control, not a nested array' ($axesDirect[0].Id -eq 'AxisRoll')
 
 $buttonsDirect = Get-ControlsByKind 'Button'
-Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 12) ("got $($buttonsDirect.Count)")
+Check 'an unwrapped call returns every button control' ($buttonsDirect.Count -eq 14) ("got $($buttonsDirect.Count)")
 
 $hatDirect = Get-ControlsByKind 'Hat'
 Check 'a single-element result is still an array' ($hatDirect.Count -eq 1 -and $hatDirect[0].Id -eq 'StickHat')
@@ -223,7 +225,7 @@ Check 'a hat the device has but identify never saw is a gap' (-not (Test-Coverag
 # generated preset leaves the trigger, the side button and both halves of the
 # throttle rocker doing nothing.
 $rows = Get-Coverage -Map (New-FakeMap) -Profile (Get-Profile 'helicopter') -ButtonCount 12 -HasHat $true
-foreach ($id in @('StickTrigger', 'StickSide', 'RockerR2', 'RockerL2')) {
+foreach ($id in @('StickTrigger', 'StickSide', 'ThrottleR2', 'ThrottleL2')) {
     $row = @($rows | Where-Object { $_.ControlId -eq $id })
     Check "$id is bound" ($row.Count -eq 1 -and $row[0].Status -eq 'Bound')
 }
@@ -481,8 +483,8 @@ Set-AuditResult -State $a -Id 'StickTrigger' -Status 'Responds' -Token 'button0'
 Check 'a responding control is recorded' ((Get-AuditStatus -State $a -Id 'StickTrigger') -eq 'Responds')
 Check 'and keeps its token' ((Get-AuditToken -State $a -Id 'StickTrigger') -eq 'button0')
 
-Set-AuditResult -State $a -Id 'RockerL2' -Status 'Dead'
-Check 'a control that sends nothing is recorded as dead' ((Get-AuditStatus -State $a -Id 'RockerL2') -eq 'Dead')
+Set-AuditResult -State $a -Id 'ThrottleRocker' -Status 'Dead'
+Check 'a control that sends nothing is recorded as dead' ((Get-AuditStatus -State $a -Id 'ThrottleRocker') -eq 'Dead')
 
 $sum = Get-AuditSummary $a
 Check 'the summary counts responders' ($sum.Responds.Count -eq 1)
@@ -500,7 +502,7 @@ $auditPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-audit-{0}.json" -f [g
 Export-AuditState -State $a -Path $auditPath
 $backAudit = Import-AuditState $auditPath
 Check 'an audit survives a round trip' ((Get-AuditStatus -State $backAudit -Id 'StickTrigger') -eq 'Responds')
-Check 'and dead entries survive too' ((Get-AuditStatus -State $backAudit -Id 'RockerL2') -eq 'Dead')
+Check 'and dead entries survive too' ((Get-AuditStatus -State $backAudit -Id 'ThrottleRocker') -eq 'Dead')
 Remove-Item $auditPath -Force
 
 # =============================================================================
@@ -541,7 +543,7 @@ foreach ($id in $fill.Untouched) {
 }
 
 # The four the user actually complained about.
-foreach ($id in @('StickTrigger', 'StickSide', 'RockerR2', 'RockerL2')) {
+foreach ($id in @('StickTrigger', 'StickSide', 'ThrottleR2', 'ThrottleL2')) {
     Check "fill gives $id a job" ($addedControls -contains $id) ("added: " + ($addedControls -join ', '))
 }
 
