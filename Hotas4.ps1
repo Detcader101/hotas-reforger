@@ -682,7 +682,7 @@ function Invoke-ApplyFill {
     }
 
     Backup-Installed -Installed $Installed
-    Set-Content -Path $Installed -Value $text -Encoding UTF8 -NoNewline
+    Write-TextFile -Path $Installed -Text $text
 
     $after = Get-Content -Raw $Installed
     $afterProblems = Test-Config $after
@@ -826,7 +826,7 @@ function Invoke-ApplyRepair {
     if (-not $Force -and -not (Confirm-Action 'Apply this?')) { Write-Note 'Nothing written.'; return 0 }
 
     Backup-Installed -Installed $Installed
-    Set-Content -Path $Installed -Value $text -Encoding UTF8 -NoNewline
+    Write-TextFile -Path $Installed -Text $text
 
     $afterProblems = Test-Config (Get-Content -Raw $Installed)
     if ($afterProblems.Count -gt 0) {
@@ -949,7 +949,7 @@ function Invoke-Apply {
         Write-Good "backed up -> backups\$(Split-Path -Leaf $backup)"
     }
 
-    Set-Content -Path $installed -Value $text -Encoding UTF8 -NoNewline
+    Write-TextFile -Path $installed -Text $text
 
     # Read it back rather than trust the write. A half-written file is the one
     # failure mode that would leave the stick dead with no error anywhere.
@@ -1219,7 +1219,7 @@ function Invoke-Register {
     Copy-Item -Path $settings -Destination (Join-Path $script:BackupDir "$stamp-InputUserSettings.conf") -Force
     Write-Good "backed up -> backups\$stamp-InputUserSettings.conf"
 
-    Set-Content -Path $settings -Value $new -Encoding UTF8 -NoNewline
+    Write-TextFile -Path $settings -Text $new
 
     if (Test-ConfigRegistered -SettingsPath $settings -ConfigFileName $name) {
         Write-Good 'registered and verified'

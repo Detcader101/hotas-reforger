@@ -476,7 +476,7 @@ function Import-Profile {
 
 function Export-Profile {
     param($Profile, [string] $Path)
-    $Profile | ConvertTo-Json -Depth 4 | Set-Content -Path $Path -Encoding UTF8
+    Write-TextFile -Path $Path -Text ($Profile | ConvertTo-Json -Depth 4)
 }
 
 function Get-TierBActions {

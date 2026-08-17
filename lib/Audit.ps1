@@ -53,7 +53,7 @@ function Import-AuditState {
 
 function Export-AuditState {
     param($State, [string] $Path)
-    $State | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
+    Write-TextFile -Path $Path -Text ($State | ConvertTo-Json -Depth 5)
 }
 
 function Get-AuditStatus {

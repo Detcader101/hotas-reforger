@@ -225,7 +225,7 @@ function Import-DeviceMap {
 
 function Export-DeviceMap {
     param($Map, [string] $Path)
-    $Map | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
+    Write-TextFile -Path $Path -Text ($Map | ConvertTo-Json -Depth 5)
 }
 
 function Set-MappedButton {

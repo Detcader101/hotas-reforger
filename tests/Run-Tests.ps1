@@ -739,6 +739,64 @@ Check 'and it carries both the twist and the rocker' (@($dualRight.Sources).Coun
 Remove-Item $mixedPath, $dualPath -Force
 
 # =============================================================================
+Group 'Encoding -- a BOM makes the whole config invisible'
+# =============================================================================
+#
+# Set-Content -Encoding UTF8 on Windows PowerShell 5.1 prepends EF BB BF.
+# Reforger looks for "ActionManager" at the start of the file, finds the BOM
+# instead, and parses the whole thing as empty. The result passes every check
+# this tool makes, is accepted by the engine without one log error, and does
+# absolutely nothing in game -- which is exactly what happened. Every file
+# Reforger writes itself begins directly with 'A'.
+
+$bomPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-bom-{0}.conf" -f [guid]::NewGuid())
+$sample = Build-Config -Bindings (Resolve-Bindings -Map (New-FakeMap) -Profile (Get-Profile 'pilot'))
+
+Write-TextFile -Path $bomPath -Text $sample
+Check 'a written config has no byte-order mark' (-not (Test-HasBom $bomPath))
+
+$bytes = [System.IO.File]::ReadAllBytes($bomPath)
+Check 'it starts with the letter A, as Reforger writes them' ($bytes[0] -eq 0x41) `
+      ("first byte: 0x{0:X2}" -f $bytes[0])
+Check "and the first line is ActionManager's" `
+      ((Get-Content -Raw $bomPath) -match '^ActionManager \{')
+
+# Prove the detector can fail, or it proves nothing.
+[System.IO.File]::WriteAllText($bomPath, $sample, (New-Object System.Text.UTF8Encoding($true)))
+Check 'the BOM detector catches one when it is there' (Test-HasBom $bomPath)
+# And here is why it stayed invisible: PowerShell's own readers STRIP the BOM,
+# so every check this tool made -- Test-Config, the parse round-trip, -Verify --
+# saw a clean file. Reforger does not strip it. The fault is only visible in
+# the bytes, which is where it now gets checked.
+Check 'PowerShell hides the BOM, which is why nothing here caught it' `
+      ((Get-Content -Raw $bomPath) -match '^ActionManager \{')
+Check 'but the bytes do not lie' (([System.IO.File]::ReadAllBytes($bomPath))[0] -eq 0xEF)
+Remove-Item $bomPath -Force
+
+# The files Reforger wrote itself are the reference. If any of them had a BOM,
+# the premise above would be wrong.
+foreach ($ref in @('reference\stock-preset.conf', 'reference\current-preset.conf')) {
+    $p = Join-Path $Root $ref
+    if (Test-Path $p) {
+        Check "$ref (written by Reforger) has no BOM" (-not (Test-HasBom $p))
+    }
+}
+
+# No write of a game-facing file may go back to Set-Content, which is where the
+# BOM came from. This is the guard, since nothing downstream can see the fault.
+$bomRisk = @()
+foreach ($f in (Get-ChildItem -Path $Root -Recurse -Include *.ps1)) {
+    if ($f.Name -eq 'Run-Tests.ps1') { continue }
+    $n = 0
+    foreach ($line in (Get-Content $f.FullName)) {
+        $n++
+        if ($line.TrimStart().StartsWith('#')) { continue }
+        if ($line -match 'Set-Content\s+-Path') { $bomRisk += "$($f.Name):$n" }
+    }
+}
+Check 'nothing writes a file with Set-Content -Encoding any more' ($bomRisk.Count -eq 0) ($bomRisk -join ', ')
+
+# =============================================================================
 Group 'Registration -- is the game even reading our file?'
 # =============================================================================
 #
