@@ -401,6 +401,24 @@ foreach ($t in @('joystick0:axis10+', 'joystick0:axis0', 'joystick0:pov_upleft',
 Check "'hold' is a known preset" (Test-FilterPreset 'hold')
 Check "'sideways' is not a known preset" (-not (Test-FilterPreset 'sideways'))
 
+# Only presets seen in a file Reforger wrote are accepted. 'toggle' reads as a
+# plausible filter name and is silently ignored by the engine -- the binding
+# then sits in the file, validates, logs nothing and does nothing, which is
+# precisely how the sights button came to be dead.
+Check "'toggle' is rejected -- never observed, silently ignored" (-not (Test-FilterPreset 'toggle'))
+Check "'value' is rejected for the same reason" (-not (Test-FilterPreset 'value'))
+
+$observed = @()
+foreach ($f in @('reference\stock-preset.conf', 'reference\current-preset.conf')) {
+    $p = Join-Path $Root $f
+    if (-not (Test-Path $p)) { continue }
+    foreach ($m in [regex]::Matches((Get-Content -Raw $p), 'FilterPreset "([a-z]+)"')) { $observed += $m.Groups[1].Value }
+}
+$observed = @($observed | Sort-Object -Unique)
+$unseen = @($script:ValidPresets | Where-Object { $observed -notcontains $_ })
+Check 'every accepted preset appears in a file Reforger wrote' ($unseen.Count -eq 0) `
+      ('not observed: ' + ($unseen -join ', '))
+
 # =============================================================================
 Group 'Building the config'
 # =============================================================================

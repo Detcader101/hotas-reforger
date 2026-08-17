@@ -153,7 +153,7 @@ $script:Jobs = @(
        # seat" rule is true of a transport and wrong of a gunship.
        Seats = @('Pilot', 'Gunner')
        Note  = 'does nothing in an aircraft whose pilot has no gun'
-       Actions = @(@{ Name = 'TurretADS'; Preset = 'toggle'; Context = 'Turret' }) }
+       Actions = @(@{ Name = 'TurretADS'; Preset = 'click'; Context = 'Turret' }) }
 
     @{ Id = 'Sights'; Kind = 'Button'; Tier = 'B'
        Label = 'Sights / ADS'
@@ -585,8 +585,17 @@ function Get-InferredAxisWarning {
     return ,@($out | Sort-Object -Unique)
 }
 
+# OBSERVED PRESETS ONLY. Every one of these has been seen in a file Reforger
+# wrote itself -- its generated joystick preset, or InputUserSettings.conf after
+# an in-game rebind.
+#
+# 'toggle' and 'value' used to be here. Neither has ever been observed; they
+# were assumed from the engine's filter class names. FilterPreset "toggle" is
+# not rejected by the engine, it is silently ignored -- so the binding sits in
+# the file, passes validation, logs nothing, and does nothing. Accepting only
+# what has been seen turns that into an error the validator catches.
 $script:ValidPresets = @('left', 'right', 'up', 'down', 'forward', 'back',
-                         'hold', 'click', 'pressed', 'select', 'next', 'toggle', 'value')
+                         'hold', 'click', 'pressed', 'select', 'next')
 
 function Test-FilterPreset { param([string] $Preset) return $script:ValidPresets -contains $Preset }
 
