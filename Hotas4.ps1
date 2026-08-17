@@ -50,6 +50,7 @@ param(
     [switch] $Show,
     [switch] $Verify,
     [switch] $Watch,
+    [switch] $KeyTest,
     [switch] $CheckLog,
     [switch] $Restore,
     [switch] $SelfTest,
@@ -220,6 +221,7 @@ function Invoke-IdentifyAxes {
         if ($c.ContainsKey('Note')) { Write-Note "($($c.Note))" }
         if (Get-Opt $c 'Optional' $false) { Write-Note 'Optional -- press [s] if this does not apply.' }
         Write-Host ''
+        Write-Keys 'keys are live:   [s] this unit has not got one   [b] back   [q] stop'
         Write-Note 'hold it there until it reads...'
 
         $r = Wait-Control -Id $Stick.Id -Accept 'Any'
@@ -281,6 +283,7 @@ function Invoke-IdentifyHat {
     Write-Section 'HAT SWITCH'
     Write-Strong 'Push the HAT on top of the stick head in any direction.'
     Write-Host ''
+    Write-Keys 'keys are live:   [s] no hat   [q] stop'
     $r = Wait-Control -Id $Stick.Id -Accept 'Digital'
     if ($r.Kind -eq 'Hat') {
         Write-Good ("read as the hat, direction: " + ($r.Directions -join ' + '))
@@ -307,6 +310,7 @@ function Invoke-IdentifyButtons {
         Write-Note $c.Where
         if ($c.ContainsKey('Ps4')) { Write-Note "(the $($c.Ps4) button, if you know the PlayStation layout)" }
         Write-Host ''
+        Write-Keys 'keys are live:   [s] this unit has not got one   [b] back   [q] stop'
 
         $r = Wait-Control -Id $Stick.Id -Accept 'Digital'
 
@@ -635,6 +639,49 @@ function Invoke-Apply {
 # Watch
 # =============================================================================
 
+function Invoke-KeyTest {
+    <#
+        Diagnostic. Proves whether this console delivers keystrokes to the tool
+        at all, and shows exactly what each key resolves to. If the wizard ever
+        seems to ignore the keyboard, run this first: it separates "the console
+        is not giving us keys" from "the tool is not acting on them".
+    #>
+    Write-Title 'KEY TEST' 'does this console give the tool your keystrokes?'
+    Write-Field 'host' $Host.Name
+    Write-Field 'PowerShell' $PSVersionTable.PSVersion.ToString()
+
+    $available = 'yes'
+    try { [void][Console]::KeyAvailable } catch { $available = "NO -- $($_.Exception.Message)" }
+    Write-Field 'KeyAvailable works' $available $(if ($available -eq 'yes') { 'Green' } else { 'Red' })
+
+    if ($available -ne 'yes') {
+        Write-Host ''
+        Write-Bad 'This console does not support polled key input.'
+        Write-Note 'Run the tool from a normal PowerShell or Windows Terminal window,'
+        Write-Note 'not through a pipe, a redirect, or an editor task runner.'
+        return 1
+    }
+
+    Write-Host ''
+    Write-Strong 'Press keys. Each one is echoed with what the tool makes of it.'
+    Write-Note 'Press Esc to finish.'
+    Write-Host ''
+
+    while ($true) {
+        $raw = [Console]::ReadKey($true)
+        $resolved = Read-KeyCharFrom $raw
+        $shown = $resolved
+        if ($resolved -eq "`r") { $shown = '<enter>' }
+        Write-Host ('    ConsoleKey=' + $raw.Key.ToString().PadRight(12)) -NoNewline -ForegroundColor DarkGray
+        Write-Host ("KeyChar='" + $raw.KeyChar + "'").PadRight(16) -NoNewline -ForegroundColor DarkGray
+        Write-Host ("tool reads: $shown") -ForegroundColor Green
+        if ($raw.Key -eq 'Escape') { break }
+    }
+    Write-Host ''
+    Write-Good 'Keyboard input is reaching the tool.'
+    return 0
+}
+
 function Invoke-Watch {
     Write-Title 'WATCH' 'move a control, see the token Reforger uses'
     $stick = Resolve-Stick
@@ -761,10 +808,12 @@ function Invoke-Menu {
     Write-Strong '  [2] Apply       write the config'
     Write-Strong '  [3] Show        what every control currently does'
     Write-Strong '  [4] Verify      audit coverage'
-    Write-Strong '  [5] Watch       live input reader'
+    Write-Strong "  [5] Watch       live input reader"
     Write-Strong '  [6] Check log   did the engine accept it?'
     Write-Strong '  [7] Restore     put the stock preset back'
     Write-Strong '  [q] Quit'
+    Write-Note ''
+    Write-Note 'If the keyboard seems dead anywhere in here, run -KeyTest.'
 
     $k = Read-Choice -Prompt 'choose:' -Keys @('1', '2', '3', '4', '5', '6', '7', 'q')
     switch ($k) {
@@ -795,6 +844,7 @@ elseif ($Apply)    { $exit = Invoke-Apply }
 elseif ($Show)     { $exit = Invoke-Show }
 elseif ($Verify)   { $exit = Invoke-Verify }
 elseif ($Watch)    { $exit = Invoke-Watch }
+elseif ($KeyTest)  { $exit = Invoke-KeyTest }
 elseif ($CheckLog) { $exit = Invoke-CheckLog }
 elseif ($Restore)  { $exit = Invoke-Restore }
 else               { $exit = Invoke-Menu }

@@ -258,7 +258,16 @@ function Wait-DeviceStill {
     the tool discovers that a rocker some sticks expose as an analogue axis is
     a pair of buttons on this one.
 
-    Returns a hashtable with Kind = Button | Axis | Hat | Key.
+    THE KEYBOARD IS LIVE THROUGHOUT, including while the stick is settling.
+    This used to call Wait-DeviceStill first -- up to six seconds during which
+    nothing read the keyboard -- and then Clear-KeyBuffer, which threw away
+    everything pressed in the meantime. On a stick with any resting jitter the
+    settle never finished early, so it burned its full timeout on every step and
+    discarded every keypress made during it. The wizard appeared to ignore the
+    keyboard completely. Settling and listening now happen in one loop, and the
+    settle is capped so a drifting stick cannot stall a step.
+
+    Returns a hashtable with Kind = Button | Axis | Hat | Key | Gone | Timeout.
 #>
 function Wait-Control {
     param(
@@ -266,16 +275,29 @@ function Wait-Control {
         [string]   $Accept = 'Any',
         [string[]] $Keys = @('s', 'b', 'q'),
         [int]      $TimeoutMs = 60000,
+        [int]      $StillMs = 300,
+        [int]      $SettleCapMs = 2000,
         [scriptblock] $OnTick
     )
-    $rest = Wait-DeviceStill $Id
-    if (-not $rest) { return @{ Kind = 'Gone' } }
+    $wantButtons = ($Accept -eq 'Any' -or $Accept -eq 'Digital' -or $Accept -eq 'Button')
+    $wantHat     = ($Accept -eq 'Any' -or $Accept -eq 'Digital' -or $Accept -eq 'Hat')
+    $wantAxes    = ($Accept -eq 'Any' -or $Accept -eq 'Axis')
 
-    Clear-KeyBuffer
-    $baselineButtons = $rest.Buttons
+    $last = Read-Device $Id
+    if (-not $last) { return @{ Kind = 'Gone' } }
+
+    # Anything already held when the step began is not an answer to it.
+    $rest = $last
+    $baselineButtons = $last.Buttons
+    $settling = $true
+    $still = 0
     $spent = 0
+    $tick = 25
+
     while ($spent -lt $TimeoutMs) {
-        if (Test-KeyWaiting) {
+        # Keys first, every tick, in both phases. Drain the whole buffer rather
+        # than one key per tick so a burst of impatient presses is not lost.
+        while (Test-KeyWaiting) {
             $k = Read-KeyChar
             if ($Keys -contains $k) { return @{ Kind = 'Key'; Key = $k } }
         }
@@ -284,26 +306,39 @@ function Wait-Control {
         if (-not $now) { return @{ Kind = 'Gone' } }
         if ($OnTick) { & $OnTick $now }
 
-        if ($Accept -eq 'Any' -or $Accept -eq 'Digital' -or $Accept -eq 'Button') {
-            $pressed = Get-PressedButton -Before $baselineButtons -Now $now.Buttons
-            if ($pressed.Count -gt 0) { return @{ Kind = 'Button'; Index = $pressed[0] } }
-            # Let go of a button held over from the last step and it stops
-            # counting as "already down" -- otherwise it can never be read.
-            $baselineButtons = $baselineButtons -band $now.Buttons
+        if ($settling) {
+            $moved = $false
+            foreach ($i in 0..5) { if ([math]::Abs($now.Axes[$i] - $last.Axes[$i]) -gt 0.06) { $moved = $true } }
+            if ($now.Buttons -ne $last.Buttons -or $now.Hat -ne $last.Hat) { $moved = $true }
+            $last = $now
+            if ($moved) { $still = 0 } else { $still += $tick }
+
+            if ($still -ge $StillMs -or $spent -ge $SettleCapMs) {
+                $settling = $false
+                $rest = $now
+                $baselineButtons = $now.Buttons
+            }
+        }
+        else {
+            if ($wantButtons) {
+                $pressed = Get-PressedButton -Before $baselineButtons -Now $now.Buttons
+                if ($pressed.Count -gt 0) { return @{ Kind = 'Button'; Index = $pressed[0] } }
+                # Releasing a button held over from the last step stops it
+                # counting as "already down", or it could never be read again.
+                $baselineButtons = $baselineButtons -band $now.Buttons
+            }
+            if ($wantHat) {
+                $names = Get-HatNames $now.Hat
+                if ($names.Count -gt 0) { return @{ Kind = 'Hat'; Directions = $names } }
+            }
+            if ($wantAxes) {
+                $moved = Find-MovedAxis -Baseline $rest.Axes -Current $now.Axes
+                if ($moved) { return @{ Kind = 'Axis'; Index = $moved.Index; Sign = $moved.Sign; Value = $moved.Value } }
+            }
         }
 
-        if ($Accept -eq 'Any' -or $Accept -eq 'Digital' -or $Accept -eq 'Hat') {
-            $names = Get-HatNames $now.Hat
-            if ($names.Count -gt 0) { return @{ Kind = 'Hat'; Directions = $names } }
-        }
-
-        if ($Accept -eq 'Any' -or $Accept -eq 'Axis') {
-            $moved = Find-MovedAxis -Baseline $rest.Axes -Current $now.Axes
-            if ($moved) { return @{ Kind = 'Axis'; Index = $moved.Index; Sign = $moved.Sign; Value = $moved.Value } }
-        }
-
-        Start-Sleep -Milliseconds 25
-        $spent += 25
+        Start-Sleep -Milliseconds $tick
+        $spent += $tick
     }
     return @{ Kind = 'Timeout' }
 }

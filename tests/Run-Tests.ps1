@@ -262,6 +262,46 @@ Check 'hat left' ((Get-HatNames 27000)[0] -eq 'left')
 Check 'a diagonal hat reports both directions' ((Get-HatNames 4500).Count -eq 2)
 
 # =============================================================================
+Group 'Keyboard'
+# =============================================================================
+#
+# The wizard once appeared to ignore every key except Enter. The resolution
+# logic was fine; the bug was that Wait-Control blocked for seconds without
+# reading the keyboard and then discarded the buffer. These pin the half that
+# can be tested without a console -- the other half is a design note in
+# Wait-Control.
+
+function New-Key {
+    param([char] $Char, [string] $Key)
+    return (New-Object System.ConsoleKeyInfo $Char, ([ConsoleKey]$Key), $false, $false, $false)
+}
+
+Check 'Enter resolves to carriage return' ((Read-KeyCharFrom (New-Key ([char]13) 'Enter')) -eq "`r")
+Check 'Escape resolves to quit' ((Read-KeyCharFrom (New-Key ([char]27) 'Escape')) -eq 'q')
+Check 'Backspace resolves to back' ((Read-KeyCharFrom (New-Key ([char]8) 'Backspace')) -eq 'b')
+Check 'a letter resolves to itself' ((Read-KeyCharFrom (New-Key ([char]'r') 'R')) -eq 'r')
+Check 'an upper-case letter is folded down' ((Read-KeyCharFrom (New-Key ([char]'S') 'S')) -eq 's')
+Check 'a digit resolves to itself' ((Read-KeyCharFrom (New-Key ([char]'3') 'D3')) -eq '3')
+Check 'a key with no character resolves to nothing' ($null -eq (Read-KeyCharFrom (New-Key ([char]0) 'F5')))
+
+# Every key the identify pass offers has to survive resolution and then match
+# the -Keys list it is checked against, or it silently does nothing.
+$axisKeys = @("`r", 'r', 's', 'q')
+foreach ($pair in @(@{C = [char]13;   K = 'Enter'; W = "`r" },
+                    @{C = [char]'r'; K = 'R';     W = 'r' },
+                    @{C = [char]'s'; K = 'S';     W = 's' },
+                    @{C = [char]'q'; K = 'Q';     W = 'q' })) {
+    $got = Read-KeyCharFrom (New-Key $pair.C $pair.K)
+    Check "the confirm prompt accepts $($pair.K)" ($got -eq $pair.W -and $axisKeys -contains $got)
+}
+
+$waitKeys = @('s', 'b', 'q')
+foreach ($pair in @(@{C = [char]'s'; K = 'S' }, @{C = [char]8; K = 'Backspace' }, @{C = [char]27; K = 'Escape' })) {
+    $got = Read-KeyCharFrom (New-Key $pair.C $pair.K)
+    Check "the wait prompt accepts $($pair.K)" ($waitKeys -contains $got)
+}
+
+# =============================================================================
 Group 'Device map'
 # =============================================================================
 

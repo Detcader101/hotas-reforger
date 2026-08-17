@@ -39,14 +39,27 @@ function Write-Field {
     Write-Host $Value -ForegroundColor $Colour
 }
 
+# The live-key hint. Printed at every prompt that accepts one, because a key
+# that works but is not advertised may as well not work.
+function Write-Keys { param([string] $Text) Write-Host ('    ' + $Text) -ForegroundColor DarkCyan }
+
+# Split out from Read-KeyChar so -KeyTest can exercise the real resolution
+# rather than a copy of it, and so it can be unit tested without a console.
+# Returns $null for a keypress that carries no character -- Shift on its own,
+# a function key -- which the caller should ignore rather than act on.
+function Read-KeyCharFrom {
+    param($Key)
+    if ($Key.Key -eq 'Enter')     { return "`r" }
+    if ($Key.Key -eq 'Escape')    { return 'q' }
+    if ($Key.Key -eq 'Backspace') { return 'b' }
+    if ($Key.KeyChar -and $Key.KeyChar -ne [char]0) { return ([string]$Key.KeyChar).ToLower() }
+    return $null
+}
+
 function Read-KeyChar {
-    # Ignore modifier-only keypresses, which arrive as key events with no char.
     while ($true) {
-        $k = [Console]::ReadKey($true)
-        if ($k.Key -eq 'Enter')     { return "`r" }
-        if ($k.Key -eq 'Escape')    { return 'q' }
-        if ($k.Key -eq 'Backspace') { return 'b' }
-        if ($k.KeyChar) { return ([string]$k.KeyChar).ToLower() }
+        $c = Read-KeyCharFrom ([Console]::ReadKey($true))
+        if ($null -ne $c) { return $c }
     }
 }
 
