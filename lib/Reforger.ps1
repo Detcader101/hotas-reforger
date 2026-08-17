@@ -119,7 +119,8 @@ $script:Jobs = @(
     @{ Id = 'SelectAction'; Kind = 'Button'; Tier = 'A'
        Label = 'Select action'
        Desc  = 'cycles the context action prompt'
-       Actions = @(@{ Name = 'SelectAction'; Preset = 'next'; Context = 'Character' }) }
+       Note  = 'the interaction system works in a seat as well as on foot, so Global'
+       Actions = @(@{ Name = 'SelectAction'; Preset = 'next'; Context = 'Global' }) }
 
     @{ Id = 'NextWeapon'; Kind = 'Button'; Tier = 'A'
        Label = 'Next weapon'
@@ -182,6 +183,17 @@ $script:Jobs = @(
        Desc  = 'switches between first and third person'
        Actions = @(@{ Name = 'SwitchCameraType'; Preset = 'click'; Context = 'Global' }) }
 
+    @{ Id = 'PerformAction'; Kind = 'Button'; Tier = 'B'
+       Label = 'Perform action'
+       Desc  = 'does the highlighted prompt -- get out, switch seat, use a thing'
+       Note  = 'Select action only cycles the list. Without this, nothing performs it.'
+       Actions = @(@{ Name = 'PerformAction'; Preset = 'click'; Context = 'Global' }) }
+
+    @{ Id = 'VonDirectHold'; Kind = 'Button'; Tier = 'A'
+       Label = 'Direct speech'
+       Desc  = 'hold to talk to people nearby, off the radio'
+       Actions = @(@{ Name = 'VONDirect'; Preset = 'hold'; Context = 'Global' }) }
+
     @{ Id = 'Zoom'; Kind = 'Button'; Tier = 'B'
        Label = 'Zoom'
        Desc  = 'hold to zoom the view'
@@ -237,6 +249,37 @@ function Get-JobActionNames {
 # decision, which reads differently from an oversight and is treated as one.
 
 $script:Profiles = @(
+
+    @{
+        Id    = 'pilot'
+        Label = 'Helicopter pilot -- every button live in the pilot seat'
+        Seat  = 'Pilot'
+        Desc  = 'Only actions that do something while you are flying. No turret or on-foot actions, because those are dead in the cockpit however correctly they are bound.'
+        Bind  = @{
+            AxisRoll     = 'CyclicRoll'
+            AxisPitch    = 'CyclicPitch'
+            AxisThrottle = 'Collective'
+            AxisTwist    = 'AntiTorque'
+
+            StickHat     = 'FreelookHat'
+
+            StickTrigger  = 'PerformAction'
+            StickTopLeft  = 'Von'
+            StickTopRight = 'SelectAction'
+            StickSide     = 'Freelook'
+
+            ThrottleFaceLeft  = 'Map'
+            ThrottleFaceDown  = 'WheelBrake'
+            ThrottleFaceRight = 'CameraType'
+            ThrottleFaceUp    = 'Autohover'
+
+            RockerR2 = 'VonDirectHold'
+            RockerL2 = 'ParkingBrake'
+
+            BaseLeft  = 'EngineStart'
+            BaseRight = 'EngineStop'
+        }
+    }
     @{
         Id    = 'helicopter'
         Label = 'Helicopter and door gunner'
@@ -327,6 +370,60 @@ $script:Profiles = @(
         }
     }
 )
+
+# -----------------------------------------------------------------------------
+# Which seat a job is alive in
+# -----------------------------------------------------------------------------
+#
+# Reforger keeps separate input contexts -- HelicopterContext, TurretContext,
+# CharacterCompartmentContext are all distinct symbols in the engine binary. An
+# action bound outside the context you are sitting in does nothing at all.
+#
+# This caused a real failure. Six dead buttons were filled with TurretFire,
+# TurretReload, TurretNextWeapon and TurretADSHold. The file was valid, the
+# engine logged no errors, the completeness audit said 17 of 17 -- and in the
+# pilot's seat not one of those buttons did anything, because they only live in
+# a gunner seat. Binding a control is not the same as the control working.
+
+function Get-JobContext {
+    param($Job)
+    $out = @()
+    foreach ($k in @('Actions', 'Pos', 'Neg')) {
+        foreach ($a in @(Get-Opt $Job $k @())) { $out += $a.Context }
+    }
+    return ,@($out | Sort-Object -Unique)
+}
+
+function Test-JobLiveInSeat {
+    <#
+        Global works everywhere. Otherwise the job needs an action in the seat's
+        own context to do anything there.
+    #>
+    param($Job, [string] $Seat)
+    $ctx = Get-JobContext $Job
+    if ($ctx -contains 'Global') { return $true }
+    switch ($Seat) {
+        'Pilot'  { return ($ctx -contains 'Helicopter') }
+        'Gunner' { return ($ctx -contains 'Turret') }
+        'Foot'   { return ($ctx -contains 'Character') }
+        'Driver' { return ($ctx -contains 'Vehicle') }
+    }
+    return $true
+}
+
+function Get-DeadJobsInSeat {
+    <# Controls in a profile whose job does nothing in the given seat. #>
+    param($Profile, [string] $Seat)
+    $out = @()
+    foreach ($k in $Profile.Bind.Keys) {
+        $v = $Profile.Bind[$k]
+        if ($v -eq 'Free' -or -not $v) { continue }
+        $job = Get-Job $v
+        if (-not $job) { continue }
+        if (-not (Test-JobLiveInSeat -Job $job -Seat $Seat)) { $out += "$k -> $v" }
+    }
+    return ,@($out | Sort-Object)
+}
 
 function Get-Profile {
     param([string] $Id)

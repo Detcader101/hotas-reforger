@@ -19,6 +19,7 @@ Set-StrictMode -Version 2.0
 . (Join-Path $Root 'lib\Ui.ps1')
 . (Join-Path $Root 'lib\Device.ps1')
 . (Join-Path $Root 'lib\Layout.ps1')
+. (Join-Path $Root 'lib\Audit.ps1')
 . (Join-Path $Root 'lib\Reforger.ps1')
 
 $script:Pass = 0
@@ -431,6 +432,76 @@ Check 'a generated config parses back' ($parsed.Actions.Count -eq $bindings.Coun
 Check 'a parsed action keeps its token' ($parsed.Actions['TurretFire'][0].Token -eq 'joystick0:button0')
 Check 'a parsed action keeps its preset' ($parsed.Actions['TurretFire'][0].Preset -eq 'hold')
 Remove-Item $roundTrip -Force
+
+# =============================================================================
+Group 'Seat liveness -- a bound control is not the same as a working one'
+# =============================================================================
+#
+# The regression: six dead buttons were filled with TurretFire, TurretReload,
+# TurretNextWeapon and TurretADSHold. Valid file, no engine errors, completeness
+# audit said 17 of 17 -- and in the pilot's seat not one of them did anything,
+# because Reforger's HelicopterContext and TurretContext are separate.
+
+Check 'a turret job is not live in the pilot seat' `
+      (-not (Test-JobLiveInSeat -Job (Get-Job 'TurretFireOnly') -Seat 'Pilot'))
+Check 'a turret job is live in a gunner seat' `
+      (Test-JobLiveInSeat -Job (Get-Job 'TurretFireOnly') -Seat 'Gunner')
+Check 'a helicopter job is live in the pilot seat' `
+      (Test-JobLiveInSeat -Job (Get-Job 'Autohover') -Seat 'Pilot')
+Check 'a global job is live in every seat' `
+      ((Test-JobLiveInSeat -Job (Get-Job 'Map') -Seat 'Pilot') -and
+       (Test-JobLiveInSeat -Job (Get-Job 'Map') -Seat 'Gunner') -and
+       (Test-JobLiveInSeat -Job (Get-Job 'Map') -Seat 'Foot'))
+Check 'a job with both turret and character actions is live in neither pilot nor global terms' `
+      (-not (Test-JobLiveInSeat -Job (Get-Job 'Fire') -Seat 'Pilot'))
+
+# The rule the pilot profile exists to satisfy.
+$pilot = Get-Profile 'pilot'
+$deadInPilot = Get-DeadJobsInSeat -Profile $pilot -Seat 'Pilot'
+Check 'every control in the pilot profile does something in the pilot seat' `
+      ($deadInPilot.Count -eq 0) ($deadInPilot -join ', ')
+
+$pilotRows = Get-Coverage -Map (New-FakeMap) -Profile $pilot -ButtonCount 12 -HasHat $true
+Check 'the pilot profile still covers every control' (Test-CoverageComplete $pilotRows)
+
+# And the profile that caused the failure is still honestly described: it does
+# contain gunner-only jobs, and the check can see them.
+$heliDead = Get-DeadJobsInSeat -Profile (Get-Profile 'helicopter') -Seat 'Pilot'
+Check 'the check does detect gunner-only jobs in the mixed profile' ($heliDead.Count -gt 0)
+
+# =============================================================================
+Group 'Audit state'
+# =============================================================================
+
+$a = New-AuditState $fakeStick
+Check 'a new audit knows the button count' ($a.ButtonCount -eq 12)
+Check 'an untested control reports untested' ((Get-AuditStatus -State $a -Id 'StickTrigger') -eq 'untested')
+
+Set-AuditResult -State $a -Id 'StickTrigger' -Status 'Responds' -Token 'button0'
+Check 'a responding control is recorded' ((Get-AuditStatus -State $a -Id 'StickTrigger') -eq 'Responds')
+Check 'and keeps its token' ((Get-AuditToken -State $a -Id 'StickTrigger') -eq 'button0')
+
+Set-AuditResult -State $a -Id 'RockerL2' -Status 'Dead'
+Check 'a control that sends nothing is recorded as dead' ((Get-AuditStatus -State $a -Id 'RockerL2') -eq 'Dead')
+
+$sum = Get-AuditSummary $a
+Check 'the summary counts responders' ($sum.Responds.Count -eq 1)
+Check 'the summary counts dead controls' ($sum.Dead.Count -eq 1)
+Check 'the summary counts what is left' ($sum.Untested.Count -eq ($script:ControlCatalogue.Count - 2))
+Check 'the summary lists driver indices nothing has produced' `
+      ($sum.UnseenIndices.Count -eq 11 -and $sum.UnseenIndices -notcontains 0)
+
+$keyMap = Get-AuditKeyMap
+Check 'every control gets its own key' ($keyMap.Count -eq $script:ControlCatalogue.Count)
+Check 'the keys are unique' ((@($keyMap.Keys) | Sort-Object -Unique).Count -eq $keyMap.Count)
+Check 'the first key is the trigger' ($keyMap['a'] -eq 'StickTrigger')
+
+$auditPath = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-audit-{0}.json" -f [guid]::NewGuid())
+Export-AuditState -State $a -Path $auditPath
+$backAudit = Import-AuditState $auditPath
+Check 'an audit survives a round trip' ((Get-AuditStatus -State $backAudit -Id 'StickTrigger') -eq 'Responds')
+Check 'and dead entries survive too' ((Get-AuditStatus -State $backAudit -Id 'RockerL2') -eq 'Dead')
+Remove-Item $auditPath -Force
 
 # =============================================================================
 Group 'Fill mode -- never move a binding the user already has'

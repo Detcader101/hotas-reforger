@@ -50,13 +50,14 @@ param(
     [switch] $Show,
     [switch] $Verify,
     [switch] $Watch,
+    [switch] $Audit,
     [switch] $KeyTest,
     [switch] $CheckLog,
     [switch] $Restore,
     [switch] $SelfTest,
 
-    [ValidateSet('helicopter', 'full', 'conservative')]
-    [string] $ProfileName = 'helicopter',
+    [ValidateSet('pilot', 'helicopter', 'full', 'conservative')]
+    [string] $ProfileName = 'pilot',
 
     [string] $ConfigName,
     [switch] $DryRun,
@@ -72,11 +73,13 @@ $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $script:Root 'lib\Ui.ps1')
 . (Join-Path $script:Root 'lib\Device.ps1')
 . (Join-Path $script:Root 'lib\Layout.ps1')
+. (Join-Path $script:Root 'lib\Audit.ps1')
 . (Join-Path $script:Root 'lib\Reforger.ps1')
 
 $script:DeviceMapPath = Join-Path $script:Root 'device-map.json'
 $script:BackupDir     = Join-Path $script:Root 'backups'
 $script:StockPath     = Join-Path $script:Root 'reference\stock-preset.conf'
+$script:AuditPath     = Join-Path $script:Root 'device-audit.json'
 
 # =============================================================================
 # Paths and preflight
@@ -751,6 +754,169 @@ function Invoke-Apply {
 # Watch
 # =============================================================================
 
+function Invoke-Audit {
+    <#
+        Find out what actually sends anything, before deciding what to bind.
+        Nothing here writes a game config.
+    #>
+    Write-Title 'AUDIT' 'which controls actually send input to the PC'
+
+    $stick = Resolve-Stick
+    if (-not $stick) { return 1 }
+
+    $state = Import-AuditState $script:AuditPath
+    if (-not $state -or $state.Pid -ne $stick.Pid) { $state = New-AuditState $stick }
+    $state.ButtonCount = $stick.ButtonCount
+
+    $keys = Get-AuditKeyMap
+
+    while ($true) {
+        Show-AuditMenu -State $state -Keys $keys -Stick $stick
+        $valid = @($keys.Keys) + @('t', 'w', 'r', 'x', 'q')
+        $k = Read-Choice -Prompt '[letter] test one   [t] test every untested   [r] reset   [w] save report   [x] done' -Keys $valid
+        if ($k -eq 'x' -or $k -eq 'q') { break }
+        if ($k -eq 'r') { $state.Results = @{}; continue }
+        if ($k -eq 'w') { Export-AuditState -State $state -Path $script:AuditPath; Write-Good "saved -> $(Split-Path -Leaf $script:AuditPath)"; Wait-AnyKey; continue }
+        if ($k -eq 't') {
+            foreach ($id in @($keys.Values)) {
+                if ((Get-AuditStatus -State $state -Id $id) -ne 'untested') { continue }
+                if (-not (Invoke-AuditOne -Stick $stick -State $state -Id $id)) { break }
+            }
+            continue
+        }
+        [void](Invoke-AuditOne -Stick $stick -State $state -Id $keys["$k"])
+    }
+
+    Export-AuditState -State $state -Path $script:AuditPath
+    Show-AuditReport -State $state -Stick $stick
+    return 0
+}
+
+function Show-AuditMenu {
+    param($State, $Keys, $Stick)
+    Write-Title 'AUDIT' "$($Stick.ButtonCount) buttons reported by the driver"
+    $glyph = @{ Responds = 'RESPONDS'; Dead = 'NO RESPONSE'; untested = '- untested' }
+    $colour = @{ Responds = 'Green'; Dead = 'Red'; untested = 'DarkGray' }
+
+    foreach ($k in $Keys.Keys) {
+        $id = $Keys[$k]
+        $c = Get-Control $id
+        $status = Get-AuditStatus -State $State -Id $id
+        $token = Get-AuditToken -State $State -Id $id
+        Write-Host ('    [' + $k + ']  ') -NoNewline -ForegroundColor White
+        Write-Host ($c.Label.PadRight(26)) -NoNewline -ForegroundColor DarkCyan
+        Write-Host ($glyph[$status].PadRight(13)) -NoNewline -ForegroundColor $colour[$status]
+        Write-Host $token -ForegroundColor DarkGray
+    }
+
+    $sum = Get-AuditSummary $State
+    Write-Host ''
+    Write-Rule
+    Write-Host ('    ' + $sum.Responds.Count + ' respond    ' + $sum.Dead.Count +
+                ' dead    ' + $sum.Untested.Count + ' untested') -ForegroundColor White
+    if ($sum.UnseenIndices.Count -gt 0) {
+        Write-Warn ('driver reports these indices but nothing has produced them yet: ' +
+                    (($sum.UnseenIndices | ForEach-Object { "button$_" }) -join ', '))
+    }
+}
+
+function Invoke-AuditOne {
+    <# Returns $false if the user wants to stop the whole run. #>
+    param($Stick, $State, [string] $Id)
+    $c = Get-Control $Id
+
+    Write-Title 'AUDIT' $c.Label
+    if ($c.Kind -eq 'Axis') {
+        Write-Strong $c.Probe
+    } else {
+        Write-Strong "Press: $($c.Label)"
+        Write-Note $c.Where
+        if ($c.ContainsKey('Ps4')) { Write-Note "(the $($c.Ps4) button in PlayStation terms)" }
+    }
+    Write-Host ''
+    Write-Keys 'do it now   -- or --   [n] I pressed it and NOTHING happened   [s] skip   [q] stop'
+
+    $accept = 'Digital'
+    if ($c.Kind -eq 'Axis') { $accept = 'Any' }
+
+    $r = Wait-Control -Id $Stick.Id -Accept $accept -Keys @('n', 's', 'q') -TimeoutMs 20000
+
+    if ($r.Kind -eq 'Gone') { Write-Bad 'The stick stopped responding.'; return $false }
+
+    if ($r.Kind -eq 'Key') {
+        if ($r.Key -eq 'q') { return $false }
+        if ($r.Key -eq 's') { return $true }
+        if ($r.Key -eq 'n') {
+            Set-AuditResult -State $State -Id $Id -Status 'Dead'
+            Write-Bad "$($c.Label): recorded as sending NOTHING."
+            Start-Sleep -Milliseconds 700
+            return $true
+        }
+    }
+
+    if ($r.Kind -eq 'Timeout') {
+        Set-AuditResult -State $State -Id $Id -Status 'Dead'
+        Write-Bad "$($c.Label): nothing read in 20 seconds. Recorded as dead."
+        Start-Sleep -Milliseconds 900
+        return $true
+    }
+
+    $token = ''
+    if ($r.Kind -eq 'Button') { $token = "button$($r.Index)" }
+    elseif ($r.Kind -eq 'Hat') { $token = 'pov_' + $r.Directions[0] }
+    elseif ($r.Kind -eq 'Axis') { $token = "axis$($r.Index)$($r.Sign)" }
+
+    # A control that reads as something already claimed is worth saying out
+    # loud: two physical controls on one index means one of them is a relabel
+    # of the other, and a binding put on it will fire from both.
+    $clash = $null
+    foreach ($other in $State.Results.Keys) {
+        if ($other -eq $Id) { continue }
+        if ($State.Results[$other].Token -eq $token) { $clash = $other }
+    }
+
+    Set-AuditResult -State $State -Id $Id -Status 'Responds' -Token $token
+    Write-Good "$($c.Label): responds as $token"
+    if ($clash) { Write-Warn "...but $(Get-ControlLabel $clash) also reads as $token. They are the same input." }
+    Start-Sleep -Milliseconds 700
+    return $true
+}
+
+function Show-AuditReport {
+    param($State, $Stick)
+    $sum = Get-AuditSummary $State
+    Write-Title 'AUDIT REPORT' $State.Device
+
+    Write-Section "RESPONDS ($($sum.Responds.Count))"
+    foreach ($id in $sum.Responds) { Write-Field (Get-AuditToken -State $State -Id $id) (Get-ControlLabel $id) 'Green' 12 }
+
+    if ($sum.Dead.Count -gt 0) {
+        Write-Section "SENDS NOTHING ($($sum.Dead.Count))"
+        foreach ($id in $sum.Dead) { Write-Field '-' (Get-ControlLabel $id) 'Red' 12 }
+        Write-Host ''
+        Write-Note 'A control that sends nothing cannot be bound by any tool or by the'
+        Write-Note 'game itself. If that is a surprise, check the PC/PS4 switch on the'
+        Write-Note 'base, and confirm against Windows: joy.cpl -> Properties -> Test.'
+    }
+
+    if ($sum.Untested.Count -gt 0) {
+        Write-Section "NOT YET TESTED ($($sum.Untested.Count))"
+        foreach ($id in $sum.Untested) { Write-Field '?' (Get-ControlLabel $id) 'DarkGray' 12 }
+    }
+
+    if ($sum.UnseenIndices.Count -gt 0) {
+        Write-Host ''
+        Write-Warn ('The driver reports ' + $State.ButtonCount + ' buttons, but these never appeared: ' +
+                    (($sum.UnseenIndices | ForEach-Object { "button$_" }) -join ', '))
+        Write-Note 'Either a control in the list above is dead, or this stick has a control'
+        Write-Note 'the catalogue does not describe.'
+    }
+
+    Write-Host ''
+    Write-Field 'report saved' $script:AuditPath
+    Write-Note 'Next:  .\Hotas4.ps1 -Apply -ProfileName pilot'
+}
+
 function Invoke-KeyTest {
     <#
         Diagnostic. Proves whether this console delivers keystrokes to the tool
@@ -956,6 +1122,7 @@ elseif ($Apply)    { $exit = Invoke-Apply }
 elseif ($Show)     { $exit = Invoke-Show }
 elseif ($Verify)   { $exit = Invoke-Verify }
 elseif ($Watch)    { $exit = Invoke-Watch }
+elseif ($Audit)    { $exit = Invoke-Audit }
 elseif ($KeyTest)  { $exit = Invoke-KeyTest }
 elseif ($CheckLog) { $exit = Invoke-CheckLog }
 elseif ($Restore)  { $exit = Invoke-Restore }
