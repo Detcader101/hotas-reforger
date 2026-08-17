@@ -335,6 +335,34 @@ Check 'remapping a control takes the new index' ((Get-MappedButtonIndex -Map $m 
 Check 'an unmapped control has no index' ($null -eq (Get-MappedButtonIndex -Map $m -ControlId 'StickR3'))
 Check 'unmapped indices are listed' ((Get-UnmappedButtonIndex -Map $m -ButtonCount 12).Count -eq 11)
 
+# A T.Flight Hotas 4 has a mode switch that changes how many axes and buttons
+# it exposes. Flip it and every index in the saved layout describes a control
+# the stick no longer has -- and the config built from it stays perfectly valid
+# while pointing at the wrong controls. Silent wrongness is the failure mode
+# this whole tool keeps running into, so it gets caught explicitly.
+$capsMap = New-FakeMap
+$capsMap.Caps = @{ Axes = 6; Buttons = 12; Hat = $true }
+
+Check 'the same device shape raises nothing' `
+      ((Test-CapsChanged -Map $capsMap -Stick $fakeStick).Count -eq 0)
+
+$fewerButtons = @{ Id = 0; Name = 'x'; Vid = 0x044F; Pid = 0xB67C; AxisCount = 6; ButtonCount = 8; HasHat = $true }
+Check 'a different button count is caught' `
+      ((Test-CapsChanged -Map $capsMap -Stick $fewerButtons).Count -eq 1)
+
+$fewerAxes = @{ Id = 0; Name = 'x'; Vid = 0x044F; Pid = 0xB67C; AxisCount = 4; ButtonCount = 12; HasHat = $true }
+Check 'a different axis count is caught' `
+      ((Test-CapsChanged -Map $capsMap -Stick $fewerAxes).Count -eq 1)
+
+$noHatStick = @{ Id = 0; Name = 'x'; Vid = 0x044F; Pid = 0xB67C; AxisCount = 6; ButtonCount = 12; HasHat = $false }
+Check 'a hat that has gone missing is caught' `
+      ((Test-CapsChanged -Map $capsMap -Stick $noHatStick).Count -eq 1)
+
+$oldMap = New-FakeMap
+$oldMap.Caps = @{ Axes = 0; Buttons = 0; Hat = $false }
+Check 'a map saved before caps were recorded does not cry wolf' `
+      ((Test-CapsChanged -Map $oldMap -Stick $fewerAxes).Count -eq 0)
+
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("hotas4-test-{0}.json" -f [guid]::NewGuid())
 Export-DeviceMap -Map (New-FakeMap) -Path $tmp
 $back = Import-DeviceMap $tmp

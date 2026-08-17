@@ -158,12 +158,24 @@ function Resolve-Stick {
 }
 
 function Get-Map {
-    param([switch] $Quiet)
+    param([switch] $Quiet, $Stick)
     $map = Import-DeviceMap $script:DeviceMapPath
     if (-not $map -and -not $Quiet) {
         Write-Bad 'This unit has not been identified yet.'
         Write-Note 'Run:  .\Hotas4.ps1 -Identify'
         Write-Note 'It takes about a minute and only has to be done once.'
+    }
+    if ($map -and $Stick -and -not $Quiet) {
+        $changed = Test-CapsChanged -Map $map -Stick $Stick
+        if ($changed.Count -gt 0) {
+            Write-Host ''
+            Write-Bad 'THIS STICK IS NOT REPORTING WHAT IT DID WHEN IT WAS IDENTIFIED.'
+            foreach ($c in $changed) { Write-Bad "  $c" }
+            Write-Note 'On a T.Flight Hotas 4 that is the mode switch on the base. Every'
+            Write-Note 'index in the saved layout now describes a control the stick does'
+            Write-Note 'not have, and a config built from it will be valid and wrong.'
+            Write-Note 'Either put the switch back, or re-run -Identify -All.'
+        }
     }
     return $map
 }
@@ -183,6 +195,7 @@ function Invoke-Identify {
     $map.Device = $stick.Name
     $map.Vid = $stick.Vid
     $map.Pid = $stick.Pid
+    $map.Caps = @{ Axes = $stick.AxisCount; Buttons = $stick.ButtonCount; Hat = $stick.HasHat }
 
     Write-Host ''
     Write-Note 'Each step names a control and asks you to move it. Keep your other'
@@ -507,7 +520,7 @@ function Invoke-Show {
     Write-Title 'LAYOUT AND BINDINGS' "profile: $ProfileName"
     $stick = Resolve-Stick
     if (-not $stick) { return 1 }
-    $map = Get-Map
+    $map = Get-Map -Stick $stick
     if (-not $map) { return 1 }
 
     $profile = Get-Profile $ProfileName
@@ -537,7 +550,7 @@ function Invoke-Verify {
     Write-Title 'VERIFY'
     $stick = Resolve-Stick
     if (-not $stick) { return 1 }
-    $map = Get-Map
+    $map = Get-Map -Stick $stick
     if (-not $map) { return 1 }
 
     $profile = Get-Profile $ProfileName
@@ -823,7 +836,7 @@ function Invoke-Apply {
 
     $stick = Resolve-Stick
     if (-not $stick) { return 1 }
-    $map = Get-Map
+    $map = Get-Map -Stick $stick
     if (-not $map) { return 1 }
     if (-not (Assert-GameClosed)) { return 1 }
 
@@ -1127,7 +1140,7 @@ function Invoke-Bind {
     param([string[]] $Pairs)
     Write-Title 'BIND' 'record a token this tool cannot measure'
 
-    $map = Get-Map
+    $map = Get-Map -Stick $stick
     if (-not $map) { return 1 }
 
     $bad = 0

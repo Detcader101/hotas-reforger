@@ -189,6 +189,11 @@ function New-DeviceMap {
         Vid      = 0
         Pid      = 0
         Verified = $false
+        # What the device reported when it was identified. A T.Flight Hotas 4
+        # has a mode switch that changes how many axes and buttons it exposes,
+        # and flipping it renumbers everything -- so a config built in one mode
+        # is quietly wrong in the other rather than obviously broken.
+        Caps     = @{ Axes = 0; Buttons = 0; Hat = $false }
         Buttons  = @{}
         Axes     = @{}
         Hat      = $false
@@ -203,6 +208,9 @@ function Import-DeviceMap {
     $map = New-DeviceMap
     foreach ($k in @('Device', 'Vid', 'Pid', 'Verified', 'Hat')) {
         if ($null -ne $raw.$k) { $map[$k] = $raw.$k }
+    }
+    if ($raw.Caps) {
+        $map.Caps = @{ Axes = [int]$raw.Caps.Axes; Buttons = [int]$raw.Caps.Buttons; Hat = [bool]$raw.Caps.Hat }
     }
     if ($raw.Buttons) {
         foreach ($p in $raw.Buttons.PSObject.Properties) { $map.Buttons[$p.Name] = [string]$p.Value }
@@ -244,6 +252,32 @@ function Get-UnmappedButtonIndex {
 # -----------------------------------------------------------------------------
 # Coverage
 # -----------------------------------------------------------------------------
+
+function Test-CapsChanged {
+    <#
+        Has the device started reporting a different shape since it was
+        identified? On a T.Flight Hotas 4 that means the mode switch has moved.
+        The indices in the map are then describing a layout the stick no longer
+        has, and every binding built from them is pointing at the wrong control
+        -- silently, because the config is still perfectly valid.
+    #>
+    param($Map, $Stick)
+    if (-not $Map -or -not $Stick) { return ,@() }
+    $caps = Get-Opt $Map 'Caps' $null
+    if (-not $caps -or [int]$caps.Axes -eq 0) { return ,@() }
+
+    $out = @()
+    if ([int]$caps.Axes -ne $Stick.AxisCount) {
+        $out += "axes: identified with $($caps.Axes), the stick now reports $($Stick.AxisCount)"
+    }
+    if ([int]$caps.Buttons -ne $Stick.ButtonCount) {
+        $out += "buttons: identified with $($caps.Buttons), the stick now reports $($Stick.ButtonCount)"
+    }
+    if ([bool]$caps.Hat -ne [bool]$Stick.HasHat) {
+        $out += "hat: identified with $($caps.Hat), the stick now reports $($Stick.HasHat)"
+    }
+    return ,$out
+}
 
 function Get-Coverage {
     <#
